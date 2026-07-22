@@ -54,6 +54,16 @@ if [ ! -d "$HOST_DIR/node_modules" ]; then
   cd "$SCRIPT_DIR"
 fi
 
+# The codemode/hybrid servers bundle a Cloudflare Worker (execute_code) that
+# imports @cloudflare/codemode; wrangler's build fails if the worker's own
+# dependencies aren't installed. Install them here so execute_code works.
+WORKER_DIR="$HOST_DIR/codemode/worker"
+if [ -f "$WORKER_DIR/package.json" ] && [ ! -d "$WORKER_DIR/node_modules" ]; then
+  echo "Installing codemode worker dependencies..."
+  cd "$WORKER_DIR" && npm install
+  cd "$SCRIPT_DIR"
+fi
+
 # Build allowed_origins array from all extension IDs
 ORIGINS=""
 for i in "${!EXTENSION_IDS[@]}"; do
