@@ -158,14 +158,22 @@ OCIC running in the Brave Browser with a single analysis artifact embedded into 
 IMAGE OF 5A
 
 ##### 5b: OCIC x Brave x Dynamic Analysis Embedded Task
-OCIC running in the Brave Browser with a single analysis artifact embedded into the task prompt dynamically from a set of two total artefacts constructed.
+OCIC running in the Brave Browser. Two artefacts are constructed from an analysis against the sources each focused on one site. The task prompt is paired with the corresponding artifact for the site.
 
 IMAGE OF 5B
 
 #### Phase 6: Warm-up Context Loaded
-##### 6a: OCIC x Brave x Single Experiential (context)
-##### 6b: OCIC x Brave x Single Analysis Embedded Task x Single Experiential (context)
+After finally seeing phase 5 improve on the baseline I wanted to explore if you could get any benefits an experiential warm up (my intuition was stubborn on this). The hypothesis was that by loading in a prior task into the session the agent would improve its performance.
 
+##### 6a: OCIC x Brave x Single Experiential (context)
+OCIC running in the Brave Browser with a single prior experience trajectory loaded into context naively by continuing the Claude session.
+
+IMAGE OF 6A
+
+##### 6b: OCIC x Brave x Single Analysis Embedded Task x Single Experiential (context)
+OCIC running in the Brave Browser with a single analysis artifact embedded into the task prompt and a single prior experience trajectory loaded into context naively by continuing the Claude session.
+
+IMAGE OF 6B
 
 ## Solution
 ## Results
