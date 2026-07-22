@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Expert Rollout Cheat Sheet · GEN-EXPERT (v4)</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#fff; --panel2:#f9fafb; --ink:#1b2230; --muted:#59636f; --faint:#939cab;
+    --line:#e3e7ec; --zil:#0e8a5f; --dash:#c2410c; --ok:#1f9d6b; --warn:#c9531f; --amber:#c98a1e;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{ --bg:#0f1216; --panel:#161a20; --panel2:#12161b; --ink:#e7eaef; --muted:#9aa3b2; --faint:#5c6675;
+      --line:#252b34; --zil:#3fbf8f; --dash:#f08a5b; --ok:#3fbf8f; --warn:#e0895a; --amber:#e0b04a; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:880px;margin:0 auto;padding:30px 22px 70px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 16px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);margin:26px 0 8px;font-family:var(--mono)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:10px 0}
+  ol.proto{margin:6px 0 2px;padding-left:22px}
+  ol.proto li{margin:7px 0;font-size:13.5px}
+  code,.url{font-family:var(--mono);font-size:11.5px;background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:2px 6px}
+  a.url{color:var(--dash);text-decoration:none}
+  .url{display:block;margin:5px 0;padding:7px 9px;word-break:break-all;user-select:all}
+  .ulabel{font:600 10px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-top:8px}
+  .task{border:1px solid var(--line);border-left:5px solid var(--app);border-radius:10px;background:var(--panel);margin:12px 0;padding:13px 16px}
+  .task.zil{--app:var(--zil)} .task.dash{--app:var(--dash)}
+  .thead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .tid{font:700 13px var(--mono);color:var(--app)}
+  .ord{font:11px var(--mono);color:var(--faint)}
+  .goal{margin:8px 0;font-size:14px;line-height:1.55}
+  .goal b{background:color-mix(in srgb,var(--amber) 18%,transparent);padding:0 3px;border-radius:3px}
+  .checks{margin:8px 0 2px;padding:0;list-style:none}
+  .checks li{margin:5px 0;font-size:13px;padding-left:22px;position:relative;color:var(--muted)}
+  .checks li::before{content:"✓";position:absolute;left:2px;color:var(--ok);font-weight:700}
+  .trap{border-left:4px solid var(--warn);background:color-mix(in srgb,var(--warn) 7%,var(--panel2));border-radius:6px;padding:8px 12px;margin:9px 0;font-size:13px}
+  .trap b{color:var(--warn)}
+  .jot{margin-top:9px;border-top:1px dashed var(--line);padding-top:7px;font:11.5px var(--mono);color:var(--faint)}
+  .kbd{font:11px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:1px 5px;background:var(--panel2)}
+  ul.tips{margin:6px 0;padding-left:20px}
+  ul.tips li{margin:5px 0;font-size:13px;color:var(--muted)}
+  ul.tips li b{color:var(--ink)}
+  .linkgrid{display:grid;grid-template-columns:1fr 1fr;gap:0 14px}
+  @media(max-width:700px){.linkgrid{grid-template-columns:1fr}}
+  @media print{ body{background:#fff} .card,.task{break-inside:avoid} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Expert rollout cheat sheet <span style="font-size:12px;color:var(--faint)">v4.1</span></h1>
+  <p class="sub">GEN-EXPERT · 6 train tasks (3 dashdish + 3 zilloft), one recorded demonstration each · OCIC recorder in Brave · demo time is data (the recorder timestamps automatically). Both apps load cleanly in Brave; no blockers. Demo order is free; each demo is independent.</p>
+
+  <h2>Per-demo protocol (repeat all 4 steps for every task)</h2>
+  <div class="card">
+    <ol class="proto">
+      <li><b>Reset the app.</b> On the app's tab open the console (<span class="kbd">⌘⌥J</span>) and run <code>localStorage.clear()</code>. Then open the task's <b>seed link</b> below. <i>(/config alone does not clear committed state from a previous demo; the clear is required.)</i></li>
+      <li><b>Verify fresh.</b> Open the app's <b>finish link</b>: every diff should show empty <code>added / deleted / updated</code>. Then go to the <b>app home</b> link.</li>
+      <li><b>Record.</b> Click the OCIC toolbar icon; wait for the <b>REC</b> badge (~2.5s mic warm-up), then do the task while <b>narrating out loud</b>. Click the icon again to stop; the recording path lands on your clipboard (📋 badge).</li>
+      <li><b>Log it.</b> Paste the clipboard line into <code>benchmark/environments/expert/recordings.txt</code> as <code>&lt;task-id&gt;: &lt;paste&gt;</code>.</li>
+    </ol>
+  </div>
+
+  <h2>App links (used every demo)</h2>
+  <div class="card">
+    <div class="linkgrid">
+      <div>
+        <div class="ulabel">dashdish · home</div>
+        <a class="url" href="https://evals-dashdish.vercel.app/">https://evals-dashdish.vercel.app/</a>
+        <div class="ulabel">dashdish · finish (fresh check + after-demo check)</div>
+        <a class="url" href="https://evals-dashdish.vercel.app/finish">https://evals-dashdish.vercel.app/finish</a>
+      </div>
+      <div>
+        <div class="ulabel">zilloft · home</div>
+        <a class="url" href="https://evals-zilloft.vercel.app/">https://evals-zilloft.vercel.app/</a>
+        <div class="ulabel">zilloft · finish (fresh check + after-demo check)</div>
+        <a class="url" href="https://evals-zilloft.vercel.app/finish">https://evals-zilloft.vercel.app/finish</a>
+      </div>
+    </div>
+    <div class="ulabel">recordings log</div>
+    <span class="url">benchmark/environments/expert/recordings.txt</span>
+    <div class="ulabel">recordings land in</div>
+    <span class="url">~/.config/open-claude-in-chrome/recordings/&lt;recording_id&gt;/</span>
+  </div>
+
+  <h2>Narration: what to say while you work</h2>
+  <div class="card">
+    <ul class="tips">
+      <li><b>Why, not just what:</b> "I'm using the category tab because search misses the curated lists."</li>
+      <li><b>Site nuances and design decisions</b> you notice: where filters live, how checkout stages, what resets state.</li>
+      <li><b>Dead ends:</b> if something does not work, say so and say why you backed out. That is exactly what the analysis compresses.</li>
+      <li><b>Key behaviors:</b> call out the moves that matter ("scheduled delivery is a separate option at checkout, not on the restaurant page").</li>
+    </ul>
+  </div>
+
+  <h2>Demo 1 · dashdish-4</h2>
+  <div class="task dash">
+    <div class="thead"><span class="tid">dashdish-4</span><span class="ord">action · 6 criteria, all state-checked</span></div>
+    <p class="goal">Schedule a delivery order from <b>"Taco Bell"</b> adding a <b>"Classic Cheeseburger" large size</b> for later and add the note <b>"Leave at the front door"</b>.</p>
+    <ul class="checks">
+      <li>Cart item must land as <b>Classic Cheeseburger</b>, size <b>Large</b>, from <b>Taco Bell</b></li>
+      <li>Delivery option must be <b>Schedule</b> (pick a later time, not ASAP)</li>
+      <li>Drop-off option: <b>"Leave it at my door"</b></li>
+      <li>Drop-off instructions must read exactly <b>"Leave at the front door"</b> (replace the pre-filled text)</li>
+      <li>Complete the checkout fully (order must be placed)</li>
+    </ul>
+    <div class="trap"><b>Exact-string criterion.</b> The instructions field is graded as the exact string "Leave at the front door"; clear the default instructions before typing it.</div>
+    <div class="ulabel">1 · reset then open the config (seed)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/config?run_id=gen-expert_dashdish-4_r1&task_id=dashdish-4&latency=0">https://evals-dashdish.vercel.app/config?run_id=gen-expert_dashdish-4_r1&amp;task_id=dashdish-4&amp;latency=0</a>
+    <div class="ulabel">2 · verify fresh (finish)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/finish">https://evals-dashdish.vercel.app/finish</a>
+    <div class="ulabel">3 · do the demo here (app home)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/">https://evals-dashdish.vercel.app/</a>
+    <div class="jot">recording id: ______________________________</div>
+  </div>
+
+  <h2>Demo 2 · zilloft-8</h2>
+  <div class="task zil">
+    <div class="thead"><span class="tid">zilloft-8</span><span class="ord">retrieval · 1 criterion · LLM-judged</span></div>
+    <p class="goal">Apply a filter for homes with <b>3 bedrooms, 2 bathrooms</b>, and a price range of <b>$600,000 to $800,000</b> for <b>zipcode 92114</b>. How many results are displayed?</p>
+    <ul class="checks">
+      <li>Search by the <b>zipcode 92114</b> (not a city name), then apply beds/baths + the price range</li>
+      <li>State the count plainly (grader expects <b>1</b>)</li>
+    </ul>
+    <div class="ulabel">1 · reset then open the config (seed)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/config?run_id=gen-expert_zilloft-8_r1&task_id=zilloft-8&latency=0">https://evals-zilloft.vercel.app/config?run_id=gen-expert_zilloft-8_r1&amp;task_id=zilloft-8&amp;latency=0</a>
+    <div class="ulabel">2 · verify fresh (finish)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/finish">https://evals-zilloft.vercel.app/finish</a>
+    <div class="ulabel">3 · do the demo here (app home)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/">https://evals-zilloft.vercel.app/</a>
+    <div class="jot">recording id: ______________________________</div>
+  </div>
+
+  <h2>Demo 3 · zilloft-4</h2>
+  <div class="task zil">
+    <div class="thead"><span class="tid">zilloft-4</span><span class="ord">retrieval · 1 criterion · LLM-judged</span></div>
+    <p class="goal">What is the <b>price of the cheapest home in San Francisco with at least 4 bedrooms</b>?</p>
+    <ul class="checks">
+      <li>Search San Francisco, filter <b>4+ bedrooms</b>, find the cheapest (sort or scan the low end)</li>
+      <li>State the price plainly (grader expects <b>$449,900</b>)</li>
+    </ul>
+    <div class="ulabel">1 · reset then open the config (seed)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/config?run_id=gen-expert_zilloft-4_r1&task_id=zilloft-4&latency=0">https://evals-zilloft.vercel.app/config?run_id=gen-expert_zilloft-4_r1&amp;task_id=zilloft-4&amp;latency=0</a>
+    <div class="ulabel">2 · verify fresh (finish)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/finish">https://evals-zilloft.vercel.app/finish</a>
+    <div class="ulabel">3 · do the demo here (app home)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/">https://evals-zilloft.vercel.app/</a>
+    <div class="jot">recording id: ______________________________</div>
+  </div>
+
+  <h2>Demo 4 · dashdish-3</h2>
+  <div class="task dash">
+    <div class="thead"><span class="tid">dashdish-3</span><span class="ord">retrieval · 1 criterion · LLM-judged</span></div>
+    <p class="goal">How many restaurants in the <b>"Light &amp; fresh" category</b> offer <b>delivery</b>?</p>
+    <ul class="checks">
+      <li>Open the "Light &amp; fresh" category and count only the restaurants offering <b>delivery</b> (not pickup-only)</li>
+      <li>State the count plainly (grader expects <b>5</b>)</li>
+    </ul>
+    <div class="ulabel">1 · reset then open the config (seed)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/config?run_id=gen-expert_dashdish-3_r1&task_id=dashdish-3&latency=0">https://evals-dashdish.vercel.app/config?run_id=gen-expert_dashdish-3_r1&amp;task_id=dashdish-3&amp;latency=0</a>
+    <div class="ulabel">2 · verify fresh (finish)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/finish">https://evals-dashdish.vercel.app/finish</a>
+    <div class="ulabel">3 · do the demo here (app home)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/">https://evals-dashdish.vercel.app/</a>
+    <div class="jot">recording id: ______________________________</div>
+  </div>
+
+  <h2>Demo 5 · zilloft-7</h2>
+  <div class="task zil">
+    <div class="thead"><span class="tid">zilloft-7</span><span class="ord">retrieval · 1 criterion · LLM-judged</span></div>
+    <p class="goal">How many <b>"Manufactured" homes</b> are available in <b>San Francisco under $1,000,000</b>?</p>
+    <ul class="checks">
+      <li>Use the <b>home-type filter (Manufactured)</b> plus a <b>max price of $1M</b> in San Francisco</li>
+      <li>State the count plainly (grader expects <b>24</b>)</li>
+    </ul>
+    <div class="ulabel">1 · reset then open the config (seed)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/config?run_id=gen-expert_zilloft-7_r1&task_id=zilloft-7&latency=0">https://evals-zilloft.vercel.app/config?run_id=gen-expert_zilloft-7_r1&amp;task_id=zilloft-7&amp;latency=0</a>
+    <div class="ulabel">2 · verify fresh (finish)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/finish">https://evals-zilloft.vercel.app/finish</a>
+    <div class="ulabel">3 · do the demo here (app home)</div>
+    <a class="url" href="https://evals-zilloft.vercel.app/">https://evals-zilloft.vercel.app/</a>
+    <div class="jot">recording id: ______________________________</div>
+  </div>
+
+  <h2>Demo 6 · dashdish-5</h2>
+  <div class="task dash">
+    <div class="thead"><span class="tid">dashdish-5</span><span class="ord">retrieval + action · 4 criteria, all state-checked</span></div>
+    <p class="goal">Add <b>three "Loaded Bacon Cheese Fries"</b> to the shopping cart from <b>"Man vs. Fries"</b>. Proceed to checkout and select <b>"Pickup"</b> as the delivery method.</p>
+    <ul class="checks">
+      <li>Cart item must land as <b>Loaded Bacon Cheese Fries</b> from <b>Man vs. Fries</b>, quantity <b>3</b> (one line item ×3, not three separate adds)</li>
+      <li>Shipping option must be <b>Pickup</b></li>
+      <li>Complete the checkout fully (order must be placed)</li>
+    </ul>
+    <div class="ulabel">1 · reset then open the config (seed)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/config?run_id=gen-expert_dashdish-5_r1&task_id=dashdish-5&latency=0">https://evals-dashdish.vercel.app/config?run_id=gen-expert_dashdish-5_r1&amp;task_id=dashdish-5&amp;latency=0</a>
+    <div class="ulabel">2 · verify fresh (finish)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/finish">https://evals-dashdish.vercel.app/finish</a>
+    <div class="ulabel">3 · do the demo here (app home)</div>
+    <a class="url" href="https://evals-dashdish.vercel.app/">https://evals-dashdish.vercel.app/</a>
+    <div class="jot">recording id: ______________________________</div>
+  </div>
+
+  <p style="font-size:12px;color:var(--faint);margin-top:22px">After the dashdish-4 and dashdish-5 demos, the dashdish <code>/finish</code> should show the order in <code>differences.foodOrders.added</code> — that is the same signal the grader reads. Retrieval demos leave the diffs mostly empty; their answer lives in your narration. Expected answers on this sheet are for demo accuracy; the agents being tested never see them.</p>
+
+</div>
+</body>
+</html>

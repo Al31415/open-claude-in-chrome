@@ -1,0 +1,241 @@
+{
+ "version": "v4.1",
+ "selection_seed": 716,
+ "design": "dashdish x zilloft. dashdish: all 5 mediums + 2 of 3 easy + 2 of 3 hard (9 tasks), 3 mediums to train; zilloft pinned from v3 (1e+6m+2h, 3 mediums to train). All hard in test.",
+ "notes": {
+  "zilloft": "selection carried over from v3 unchanged",
+  "dashdish_mediums": "exact supply, all 5 used",
+  "fly-unified": "dropped in v4 (intermittent Brave interstitial + replaced by dashdish)",
+  "v4.1": "promoted dashdish-5 from test to train (seed 717) after split correction: 3 dashdish mediums to train, not 2"
+ },
+ "reps": {
+  "train": 1,
+  "test": 1
+ },
+ "model": {
+  "agent": "sonnet",
+  "effort": "medium"
+ },
+ "train_order": [
+  "zilloft-4",
+  "dashdish-4",
+  "dashdish-3",
+  "zilloft-7",
+  "zilloft-8",
+  "dashdish-5"
+ ],
+ "test_order": [
+  "dashdish-11",
+  "dashdish-10",
+  "zilloft-3",
+  "dashdish-7",
+  "dashdish-1",
+  "dashdish-2",
+  "dashdish-8",
+  "zilloft-6",
+  "zilloft-9",
+  "zilloft-10",
+  "zilloft-5",
+  "zilloft-2"
+ ],
+ "tasks": {
+  "dashdish-4": {
+   "id": "dashdish-4",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "Schedule a delivery order from \"Taco Bell\" adding a \"Classic Cheeseburger\" large size for later and add the note \"Leave at the front door\".",
+   "difficulty": "medium",
+   "challengeType": "action",
+   "grading": "deterministic",
+   "n_evals": 6,
+   "split": "train"
+  },
+  "zilloft-8": {
+   "id": "zilloft-8",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "Apply a filter for homes with 3 bedrooms, 2 bathrooms, and a price range between $600,000 and $800,000 for zipcode 92114. How many results are displayed?",
+   "difficulty": "medium",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "train"
+  },
+  "zilloft-4": {
+   "id": "zilloft-4",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "What is the price of the cheapest home in San Francisco with at least 4 bedrooms?",
+   "difficulty": "medium",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "train"
+  },
+  "dashdish-3": {
+   "id": "dashdish-3",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "How many restaurants in the \"Light & fresh\" category offer delivery?",
+   "difficulty": "medium",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "train"
+  },
+  "zilloft-7": {
+   "id": "zilloft-7",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "How many \"Manufactured\" homes are available in San Francisco under $1,000,000?",
+   "difficulty": "medium",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "train"
+  },
+  "dashdish-11": {
+   "id": "dashdish-11",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "Can you find out how much a medium 'Chicken Biryani' from 'Mashaallah Halal Food Pakistani Food' costs? And while you're at it, add one to the cart, buy it, and let me know the total price.",
+   "difficulty": "medium",
+   "challengeType": "retrieval-action",
+   "grading": "judged",
+   "n_evals": 4,
+   "split": "test"
+  },
+  "dashdish-10": {
+   "id": "dashdish-10",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "Place an order from \"Souvla\" for a \"Medium Classic Cheeseburger\" and a \"Small Bacon Double Cheeseburger\" with \"Standard Delivery\" as the method with the default charged options.",
+   "difficulty": "hard",
+   "challengeType": "action",
+   "grading": "deterministic",
+   "n_evals": 7,
+   "split": "test"
+  },
+  "zilloft-3": {
+   "id": "zilloft-3",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "Find a home in San Diego priced under $150,000 with at least 2 bedrooms and request a tour. Use these details: Contact Name: John Doe, Email: johndoe@example.com, Phone: 555-123-4567, Tour Time: 2:00 PM, Tour Date: First available.",
+   "difficulty": "easy",
+   "challengeType": "retrieval-action",
+   "grading": "deterministic",
+   "n_evals": 4,
+   "split": "test"
+  },
+  "dashdish-7": {
+   "id": "dashdish-7",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "Select \"Express Delivery\" for an order from \"DragonEats\" of \"Mushroom Swiss Burger\" and complete the checkout with the pre-loaded Visa card.",
+   "difficulty": "hard",
+   "challengeType": "action",
+   "grading": "deterministic",
+   "n_evals": 4,
+   "split": "test"
+  },
+  "dashdish-1": {
+   "id": "dashdish-1",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "What are the first three restaurants listed on the homepage?",
+   "difficulty": "easy",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "test"
+  },
+  "dashdish-5": {
+   "id": "dashdish-5",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "Add three \"Loaded Bacon Cheese Fries\" to the shopping cart from \"Man vs. Fries\". Proceed to checkout and select \"Pickup\" as the delivery method.",
+   "difficulty": "medium",
+   "challengeType": "retrieval-action",
+   "grading": "deterministic",
+   "n_evals": 4,
+   "split": "train"
+  },
+  "dashdish-2": {
+   "id": "dashdish-2",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "Add a \"Medium Pepperoni Pizza\" from the restaurant \"Papa Johns Pizza\" to the shopping cart and purchase it.",
+   "difficulty": "easy",
+   "challengeType": "action",
+   "grading": "deterministic",
+   "n_evals": 4,
+   "split": "test"
+  },
+  "dashdish-8": {
+   "id": "dashdish-8",
+   "app": "dashdish",
+   "url": "https://evals-dashdish.vercel.app",
+   "goal": "What are first three categories of deliverable food displayed on the homepage?",
+   "difficulty": "medium",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "test"
+  },
+  "zilloft-6": {
+   "id": "zilloft-6",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "Select a property listed in San Francisco as \"Condos\" within a price range under $300,000 and request a tour for tomorrow at 4:00 PM. Use these contact details: Name: Sarah Brown, Email: sarahbrown@example.com, Phone: 555-987-6543.",
+   "difficulty": "medium",
+   "challengeType": "action",
+   "grading": "deterministic",
+   "n_evals": 5,
+   "split": "test"
+  },
+  "zilloft-9": {
+   "id": "zilloft-9",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "Find the most expensive home listed in San Francisco with 4+ bedrooms and request a tour for 6:00 PM on the earliest possible date. Use these contact details: Name: David Smith, Email: davidsmith@example.com, Phone: 555-333-7890. What is the price of this home?",
+   "difficulty": "hard",
+   "challengeType": "retrieval-action",
+   "grading": "judged",
+   "n_evals": 6,
+   "split": "test"
+  },
+  "zilloft-10": {
+   "id": "zilloft-10",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "How many \"Houses\" and \"Townhomes\" are listed in San Francisco with a price below $500,000?",
+   "difficulty": "hard",
+   "challengeType": "retrieval",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "test"
+  },
+  "zilloft-5": {
+   "id": "zilloft-5",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "Filter the listings in San Jose to display only \"Townhomes\" within a price range of $750,000 to $1,000,000. How many results are displayed?",
+   "difficulty": "medium",
+   "challengeType": "action",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "test"
+  },
+  "zilloft-2": {
+   "id": "zilloft-2",
+   "app": "zilloft",
+   "url": "https://evals-zilloft.vercel.app",
+   "goal": "Filter the listings in San Francisco to show only homes with 3 bedrooms and 2 bathrooms. How many listings are displayed?",
+   "difficulty": "medium",
+   "challengeType": "action",
+   "grading": "judged",
+   "n_evals": 1,
+   "split": "test"
+  }
+ }
+}

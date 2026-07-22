@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ocic — the refresh knobs</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8f5e9;
+    --surface: #fffcf0;
+    --card: #fdfaea;
+    --fg: #1a1a1c;
+    --muted: rgba(26,26,28,0.55);
+    --dim: rgba(26,26,28,0.42);
+    --faint: rgba(26,26,28,0.25);
+    --border: rgba(26,26,28,0.12);
+    --border-soft: rgba(26,26,28,0.08);
+    --accent: #2563eb;
+    --accent-soft: rgba(37,99,235,0.10);
+    --accent-heavy: rgba(37,99,235,0.22);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 64px 40px 96px; }
+
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 32px;
+  }
+
+  h1 {
+    font-family: "EB Garamond", "Times New Roman", serif;
+    font-weight: 500;
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 24px 0;
+  }
+  h1 em { color: var(--accent); font-style: italic; font-weight: 500; }
+
+  .lede {
+    font-family: "EB Garamond", serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 20px;
+    color: var(--muted);
+    margin: 0 0 24px 0;
+    max-width: 720px;
+  }
+
+  .meta {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--dim);
+    margin: 0 0 56px 0;
+  }
+  .meta .sep { margin: 0 8px; color: var(--faint); }
+
+  h2 {
+    font-family: "EB Garamond", serif;
+    font-weight: 500;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 72px 0 24px 0;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  h2 .num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  h3 { font-family: "Inter", sans-serif; font-weight: 700; font-size: 17px; margin: 32px 0 12px 0; }
+  h4 { font-family: "Inter", sans-serif; font-weight: 700; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 24px 0 12px 0; }
+
+  p { margin: 0 0 16px 0; }
+  strong { font-weight: 600; }
+
+  code, .mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.92em; }
+  code {
+    background: var(--accent-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--fg);
+  }
+
+  pre {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  a {
+    color: var(--fg);
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-style: dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  blockquote {
+    margin: 24px 0;
+    padding: 12px 20px;
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    font-family: "EB Garamond", serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  .callout {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-heavy);
+    padding: 20px 24px;
+    margin: 32px 0;
+    border-radius: 2px;
+  }
+  .callout h4 { margin-top: 0; color: var(--accent); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 24px;
+    margin: 24px 0;
+    border-radius: 2px;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 24px 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+  }
+  th {
+    font-family: "Inter", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+  td.mono, th.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+
+  .knob-pill {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 2px 9px;
+    border-radius: 999px;
+    font-weight: 500;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  .illustration {
+    margin: 40px 0 16px 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 32px;
+    overflow-x: auto;
+  }
+  .illustration svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  .illustration .caption {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+    margin-top: 16px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  footer .sep { margin: 0 8px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">ocic · internal · jun 14 2026</div>
+
+  <h1>The refresh knobs of <em>open claude</em><br/>in chrome.</h1>
+
+  <p class="lede">
+    When you change a file in this repo, you usually have to re-load <em>something</em>
+    before the change is visible. Different files require different re-loads. This
+    is the map.
+  </p>
+
+  <div class="meta">
+    codemode branch <span class="sep">·</span> ref dcc8cc7 <span class="sep">·</span> seven knobs, one stack
+  </div>
+
+  <h2><span class="num">01</span>the seven knobs</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width: 50px">#</th>
+        <th>knob</th>
+        <th>how</th>
+        <th>what it resets</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><span class="knob-pill">K1</span></td>
+        <td>hard-reload the page</td>
+        <td class="mono">Cmd+Shift+R · or ?v=N</td>
+        <td>browser cache for that tab's assets</td>
+      </tr>
+      <tr>
+        <td><span class="knob-pill">K2</span></td>
+        <td>reload the extension</td>
+        <td class="mono">chrome://extensions → reload</td>
+        <td>service worker code, in-memory SW state; cascades to respawn native-host.js</td>
+      </tr>
+      <tr>
+        <td><span class="knob-pill">K3</span></td>
+        <td>restart the browser</td>
+        <td class="mono">quit all windows, reopen</td>
+        <td>re-reads native messaging manifests; resets per-browser state</td>
+      </tr>
+      <tr>
+        <td><span class="knob-pill">K4</span></td>
+        <td>re-run install.sh</td>
+        <td class="mono">./install.sh &lt;ext-id&gt;</td>
+        <td>writes a fresh native messaging manifest into the OS dir</td>
+      </tr>
+      <tr>
+        <td><span class="knob-pill">K5</span></td>
+        <td>kill MCP processes</td>
+        <td class="mono">pkill -9 -f "…"</td>
+        <td>terminates the MCP server process and its wrangler/workerd children</td>
+      </tr>
+      <tr>
+        <td><span class="knob-pill">K6</span></td>
+        <td>reconnect MCP</td>
+        <td class="mono">/mcp · or send any message</td>
+        <td>claude code re-launches the killed MCP server from disk</td>
+      </tr>
+      <tr>
+        <td><span class="knob-pill">K7</span></td>
+        <td>npm install</td>
+        <td class="mono">(cd host && npm install)</td>
+        <td>refreshes node_modules after a dep change</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="color: var(--muted); font-size: 14px;">
+    <strong>K5 and K6 always go together.</strong> Killing without reconnecting just
+    leaves things off; reconnecting without first killing just talks to the stale
+    process.
+  </p>
+
+  <h2><span class="num">02</span>the stack, and where each knob lands</h2>
+
+  <p>
+    Every file in this repo ends up affecting one of five live components. Read
+    the diagram top-down: a code change at the top of a row enters the system
+    here, and the corresponding knob on the right is what makes that component
+    re-read its source.
+  </p>
+
+  <div class="illustration">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 660" role="img" aria-label="Five OCIC components stacked with the files that feed them and the knobs that reset them">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+        </marker>
+        <marker id="ar-dim" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="rgba(26,26,28,0.42)"/>
+        </marker>
+        <pattern id="dotgrid2" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.5" fill="rgba(26,26,28,0.10)"/>
+        </pattern>
+      </defs>
+
+      <rect x="0" y="0" width="800" height="660" fill="#fffcf0"/>
+      <rect x="280" y="40" width="240" height="580" fill="url(#dotgrid2)" opacity="0.55"/>
+
+      <!-- column headers -->
+      <text x="40" y="28" font-family="JetBrains Mono, monospace" font-size="10.5" fill="rgba(26,26,28,0.42)" letter-spacing="2">FILE YOU EDIT</text>
+      <text x="400" y="28" font-family="JetBrains Mono, monospace" font-size="10.5" fill="rgba(26,26,28,0.42)" text-anchor="middle" letter-spacing="2">LIVE COMPONENT</text>
+      <text x="760" y="28" font-family="JetBrains Mono, monospace" font-size="10.5" fill="rgba(26,26,28,0.42)" text-anchor="end" letter-spacing="2">KNOB TO TURN</text>
+
+      <!-- ROW 1: Browser tab -->
+      <g>
+        <!-- file group -->
+        <text x="40" y="80" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">scratch/test-form/*</text>
+        <text x="40" y="98" font-family="JetBrains Mono, monospace" font-size="10.5" fill="rgba(26,26,28,0.55)">(or any static asset</text>
+        <text x="40" y="113" font-family="JetBrains Mono, monospace" font-size="10.5" fill="rgba(26,26,28,0.55)">served via http.server)</text>
+        <!-- arrow into component -->
+        <path d="M 200 88 L 295 88" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <!-- component box -->
+        <rect x="300" y="64" width="200" height="60" fill="#fdfaea" stroke="rgba(26,26,28,0.18)" stroke-width="1"/>
+        <text x="400" y="88" font-family="EB Garamond, serif" font-size="17" fill="#1a1a1c" text-anchor="middle">browser tab</text>
+        <text x="400" y="108" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.55)" text-anchor="middle">rendered page · cached</text>
+        <!-- knob arrow -->
+        <path d="M 505 92 L 615 92" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <!-- knob pill -->
+        <g>
+          <rect x="620" y="78" width="140" height="28" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1" rx="14"/>
+          <text x="690" y="97" font-family="JetBrains Mono, monospace" font-size="12" fill="#2563eb" text-anchor="middle" font-weight="500">K1 · hard-reload</text>
+        </g>
+      </g>
+
+      <!-- separator -->
+      <line x1="300" y1="135" x2="500" y2="135" stroke="rgba(26,26,28,0.10)" stroke-width="1"/>
+
+      <!-- ROW 2: Extension SW -->
+      <g>
+        <text x="40" y="170" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">extension/background.js</text>
+        <text x="40" y="186" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">extension/manifest.json</text>
+        <text x="40" y="202" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">extension/content.js</text>
+        <text x="40" y="220" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.42)">(content.js also needs K1 on tabs)</text>
+        <path d="M 250 188 L 295 188" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <rect x="300" y="164" width="200" height="60" fill="#fdfaea" stroke="rgba(26,26,28,0.18)" stroke-width="1"/>
+        <text x="400" y="188" font-family="EB Garamond, serif" font-size="17" fill="#1a1a1c" text-anchor="middle">extension service worker</text>
+        <text x="400" y="208" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.55)" text-anchor="middle">mv3 sw + content scripts</text>
+        <path d="M 505 192 L 615 192" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <g>
+          <rect x="620" y="178" width="140" height="28" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1" rx="14"/>
+          <text x="690" y="197" font-family="JetBrains Mono, monospace" font-size="12" fill="#2563eb" text-anchor="middle" font-weight="500">K2 · reload ext</text>
+        </g>
+      </g>
+
+      <!-- cascade hint from extension SW -->
+      <g>
+        <path d="M 400 224 Q 400 252 400 270" stroke="rgba(26,26,28,0.42)" stroke-width="1" stroke-dasharray="3,3" fill="none" marker-end="url(#ar-dim)"/>
+        <text x="412" y="252" font-family="JetBrains Mono, monospace" font-size="9.5" fill="rgba(26,26,28,0.55)">cascade: respawns native-host.js</text>
+      </g>
+
+      <!-- ROW 3: Native host -->
+      <g>
+        <text x="40" y="296" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/native-host.js</text>
+        <text x="40" y="312" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.42)">(launched by chrome on demand)</text>
+        <path d="M 240 300 L 295 300" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <rect x="300" y="276" width="200" height="60" fill="#fdfaea" stroke="rgba(26,26,28,0.18)" stroke-width="1"/>
+        <text x="400" y="300" font-family="EB Garamond, serif" font-size="17" fill="#1a1a1c" text-anchor="middle">native host</text>
+        <text x="400" y="320" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.55)" text-anchor="middle">stdio ↔ tcp bridge</text>
+        <path d="M 505 304 L 615 304" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <g>
+          <rect x="620" y="290" width="140" height="28" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1" rx="14"/>
+          <text x="690" y="309" font-family="JetBrains Mono, monospace" font-size="12" fill="#2563eb" text-anchor="middle" font-weight="500">K2 (cascade)</text>
+        </g>
+      </g>
+
+      <line x1="300" y1="347" x2="500" y2="347" stroke="rgba(26,26,28,0.10)" stroke-width="1"/>
+
+      <!-- ROW 4: MCP server runtime -->
+      <g>
+        <text x="40" y="380" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/mcp-server.js</text>
+        <text x="40" y="396" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/tool-runtime.js</text>
+        <text x="40" y="412" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/tool-definitions.js</text>
+        <text x="40" y="428" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/codemode/common.js</text>
+        <text x="40" y="444" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/codemode/server-codemode.js</text>
+        <text x="40" y="460" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/codemode/server-hybrid.js</text>
+        <path d="M 260 420 L 295 420" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <rect x="300" y="382" width="200" height="76" fill="#fdfaea" stroke="rgba(26,26,28,0.18)" stroke-width="1"/>
+        <text x="400" y="408" font-family="EB Garamond, serif" font-size="17" fill="#1a1a1c" text-anchor="middle">mcp server processes</text>
+        <text x="400" y="428" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.55)" text-anchor="middle">default · codemode · hybrid</text>
+        <text x="400" y="445" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.55)" text-anchor="middle">spawned by claude code</text>
+        <path d="M 505 420 L 615 420" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <g>
+          <rect x="620" y="406" width="140" height="28" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1" rx="14"/>
+          <text x="690" y="425" font-family="JetBrains Mono, monospace" font-size="12" fill="#2563eb" text-anchor="middle" font-weight="500">K5 → K6</text>
+        </g>
+      </g>
+
+      <!-- cascade arrow MCP → wrangler -->
+      <g>
+        <path d="M 400 458 Q 400 488 400 504" stroke="rgba(26,26,28,0.42)" stroke-width="1" stroke-dasharray="3,3" fill="none" marker-end="url(#ar-dim)"/>
+        <text x="412" y="488" font-family="JetBrains Mono, monospace" font-size="9.5" fill="rgba(26,26,28,0.55)">cascade: parent kill takes wrangler with it</text>
+      </g>
+
+      <!-- ROW 5: Wrangler / Workerd -->
+      <g>
+        <text x="40" y="530" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/codemode/worker/worker.js</text>
+        <text x="40" y="546" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">host/codemode/worker/wrangler.jsonc</text>
+        <path d="M 280 538 L 295 538" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <rect x="300" y="510" width="200" height="60" fill="#fdfaea" stroke="rgba(26,26,28,0.18)" stroke-width="1"/>
+        <text x="400" y="534" font-family="EB Garamond, serif" font-size="17" fill="#1a1a1c" text-anchor="middle">wrangler dev / workerd</text>
+        <text x="400" y="554" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.55)" text-anchor="middle">sandbox for execute_code</text>
+        <path d="M 505 540 L 615 540" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <g>
+          <rect x="620" y="526" width="140" height="28" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1" rx="14"/>
+          <text x="690" y="545" font-family="JetBrains Mono, monospace" font-size="12" fill="#2563eb" text-anchor="middle" font-weight="500">K5 → K6</text>
+        </g>
+      </g>
+
+      <!-- Out-of-stack: install.sh / native messaging manifest -->
+      <g>
+        <line x1="40" y1="595" x2="760" y2="595" stroke="rgba(26,26,28,0.12)" stroke-width="1" stroke-dasharray="2,3"/>
+        <text x="40" y="618" font-family="JetBrains Mono, monospace" font-size="11" font-weight="500" fill="#1a1a1c">install.sh</text>
+        <text x="40" y="636" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.42)">(writes /Library/.../NativeMessagingHosts/*.json)</text>
+        <path d="M 260 622 L 295 622" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <rect x="300" y="602" width="200" height="40" fill="#fdfaea" stroke="rgba(26,26,28,0.18)" stroke-width="1"/>
+        <text x="400" y="626" font-family="EB Garamond, serif" font-size="15" fill="#1a1a1c" text-anchor="middle">native messaging manifest</text>
+        <path d="M 505 622 L 615 622" stroke="#2563eb" stroke-width="1.2" fill="none" marker-end="url(#ar)"/>
+        <g>
+          <rect x="620" y="608" width="140" height="28" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1" rx="14"/>
+          <text x="690" y="627" font-family="JetBrains Mono, monospace" font-size="12" fill="#2563eb" text-anchor="middle" font-weight="500">K4 → K3</text>
+        </g>
+      </g>
+    </svg>
+    <div class="caption">five live components · seven knobs · two cascades</div>
+  </div>
+
+  <h2><span class="num">03</span>server-side changes</h2>
+
+  <table>
+    <thead>
+      <tr><th>you changed</th><th>knobs</th><th>note</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">host/mcp-server.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>default MCP front-end</td>
+      </tr>
+      <tr>
+        <td class="mono">host/tool-runtime.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>shared transport / native-messaging client</td>
+      </tr>
+      <tr>
+        <td class="mono">host/tool-definitions.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>K6 refetches the tool list automatically</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/common.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>only codemode + hybrid affected; default is fine</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/server-codemode.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>only that variant</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/server-hybrid.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>only that variant</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/worker/worker.js</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>killing the MCP parent kills wrangler too</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/worker/wrangler.jsonc</td>
+        <td><span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>wrangler reads it only at boot</td>
+      </tr>
+      <tr>
+        <td class="mono">host/native-host.js</td>
+        <td><span class="knob-pill">K2</span></td>
+        <td>the extension respawns native-host.js when it reconnects after a reload</td>
+      </tr>
+      <tr>
+        <td class="mono">host/package.json (deps)</td>
+        <td><span class="knob-pill">K7</span> <span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>npm install in host/</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/worker/package.json (deps)</td>
+        <td><span class="knob-pill">K7</span> <span class="knob-pill">K5</span> <span class="knob-pill">K6</span></td>
+        <td>first npm install downloads workerd, ~minute</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">04</span>extension-side changes</h2>
+
+  <table>
+    <thead>
+      <tr><th>you changed</th><th>knobs</th><th>note</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">extension/background.js</td>
+        <td><span class="knob-pill">K2</span></td>
+        <td>SW re-evaluates; native-host.js respawns on reconnect</td>
+      </tr>
+      <tr>
+        <td class="mono">extension/content.js</td>
+        <td><span class="knob-pill">K2</span> + <span class="knob-pill">K1</span> per tab</td>
+        <td>old content scripts keep running until the page reloads</td>
+      </tr>
+      <tr>
+        <td class="mono">extension/manifest.json</td>
+        <td><span class="knob-pill">K2</span> (+ <span class="knob-pill">K3</span>)</td>
+        <td>K3 only if permissions or nativeMessaging changed</td>
+      </tr>
+      <tr>
+        <td class="mono">extension/icons/*</td>
+        <td><span class="knob-pill">K2</span></td>
+        <td>just so the new icon shows</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">05</span>machine setup / native messaging</h2>
+
+  <table>
+    <thead>
+      <tr><th>you changed</th><th>knobs</th><th>note</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">install.sh</td>
+        <td><span class="knob-pill">K4</span> <span class="knob-pill">K3</span></td>
+        <td>K4 writes the manifest; K3 makes the browser re-read it</td>
+      </tr>
+      <tr>
+        <td>moved the repo on disk</td>
+        <td><span class="knob-pill">K4</span> <span class="knob-pill">K3</span></td>
+        <td>the manifest contains absolute paths</td>
+      </tr>
+      <tr>
+        <td>added a new browser (e.g. Brave)</td>
+        <td><span class="knob-pill">K4</span> with new ext id, then <span class="knob-pill">K3</span></td>
+        <td>per-browser native messaging registration</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">06</span>test page &amp; git operations</h2>
+
+  <table>
+    <thead>
+      <tr><th>operation</th><th>knobs</th><th>note</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">scratch/test-form/index.html</td>
+        <td><span class="knob-pill">K1</span></td>
+        <td>python http.server does not cache-bust</td>
+      </tr>
+      <tr>
+        <td>git pull with new commits</td>
+        <td>union of every row above for changed files</td>
+        <td>usually: <span class="knob-pill">K7</span> if package.json moved · <span class="knob-pill">K5</span> <span class="knob-pill">K6</span> · <span class="knob-pill">K2</span> if extension/ changed · <span class="knob-pill">K3</span> only if install.sh changed</td>
+      </tr>
+      <tr>
+        <td>switching branches with different package.json</td>
+        <td><span class="knob-pill">K7</span> <span class="knob-pill">K5</span> <span class="knob-pill">K6</span> (+ <span class="knob-pill">K2</span>)</td>
+        <td>K2 only if extension/ differs between branches</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">07</span>common scenarios, distilled</h2>
+
+  <table>
+    <tbody>
+      <tr><td>tweaked an MCP tool description</td><td><span class="knob-pill">K5</span> → <span class="knob-pill">K6</span></td></tr>
+      <tr><td>added a new MCP tool</td><td><span class="knob-pill">K5</span> → <span class="knob-pill">K6</span> (+ <span class="knob-pill">K2</span> if the handler lives in extension/background.js)</td></tr>
+      <tr><td>edited the React test page</td><td><span class="knob-pill">K1</span></td></tr>
+      <tr><td>edited extension service worker logic</td><td><span class="knob-pill">K2</span></td></tr>
+      <tr><td>edited the codemode worker</td><td><span class="knob-pill">K5</span> → <span class="knob-pill">K6</span></td></tr>
+      <tr><td>want the extension's heartbeat alive on a fresh start</td><td><span class="knob-pill">K2</span></td></tr>
+      <tr><td>pulled a branch with new wrangler deps</td><td><span class="knob-pill">K7</span> (worker) → <span class="knob-pill">K5</span> → <span class="knob-pill">K6</span></td></tr>
+      <tr><td>moved the repo to a new disk location</td><td><span class="knob-pill">K4</span> → <span class="knob-pill">K3</span></td></tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">08</span>nuclear reset</h2>
+
+  <p>When the system is misbehaving and you can't tell which knob to turn:</p>
+
+<pre><code># 1. kill everything we own
+pkill -9 -f "server-codemode\|server-hybrid\|mcp-server.js\|wrangler dev\|wrangler-dist/cli\|workerd"
+
+# 2. (optional) clean the wrangler state dirs
+rm -rf host/codemode/worker/.wrangler /tmp/oc-wrangler-*
+
+# 3. reinstall deps in case anything is half-installed
+(cd host && npm install) && (cd host/codemode/worker && npm install)
+</code></pre>
+
+  <p>Then in the browser:</p>
+  <ul>
+    <li><code>chrome://extensions</code> → toggle the OCIC extension off, then on (forces a full SW recycle)</li>
+    <li>close every browser window and reopen</li>
+    <li>in claude code: <code>/mcp</code> and reconnect each variant</li>
+  </ul>
+
+  <p>This sequence is <span class="knob-pill">K7</span> <span class="knob-pill">K5</span> <span class="knob-pill">K2</span> <span class="knob-pill">K3</span> <span class="knob-pill">K6</span> in one go. Use sparingly — usually one of the targeted recipes above is enough.</p>
+
+  <h2><span class="num">09</span>why each knob exists</h2>
+
+  <p>Short mental model so you can predict the right knob next time:</p>
+
+  <div class="card">
+    <h4>browser tab cache</h4>
+    <p>The browser caches HTML/CSS/JS aggressively. <span class="knob-pill">K1</span> covers all static asset changes you serve.</p>
+
+    <h4>mv3 service worker lifecycle</h4>
+    <p>The service worker is a separate JS runtime initialized by Chrome from <code>background.js</code> and <code>content.js</code> on extension load. Once loaded, the SW keeps running (subject to Chrome's eviction lifecycle) and never re-reads its source. <span class="knob-pill">K2</span> is the only way to re-evaluate extension code.</p>
+
+    <h4>native messaging manifest</h4>
+    <p>A JSON file in an OS-specific directory that Chrome reads at browser startup. <span class="knob-pill">K3</span> is the only way to make Chrome see a changed manifest; <span class="knob-pill">K4</span> is what writes a new one.</p>
+
+    <h4>mcp server processes</h4>
+    <p>Spawned by claude code on first use (or on <code>/mcp</code> reconnect) from the files on disk. They never reload their own source. <span class="knob-pill">K5</span> forces termination; <span class="knob-pill">K6</span> forces re-launch.</p>
+
+    <h4>wrangler dev as a child process</h4>
+    <p>It's a child of the MCP server process, spawned with <code>detached:true</code> in its own group. We never need to kill wrangler separately — killing the MCP parent group-signals it dead. That's why all the codemode/hybrid rows above are <span class="knob-pill">K5</span> <span class="knob-pill">K6</span> without a separate wrangler entry.</p>
+
+    <h4>native-host.js spawn cycle</h4>
+    <p>Launched by Chrome on demand when the extension calls <code>chrome.runtime.connectNative()</code>. When the extension reloads, the port disconnects, the old native-host.js exits, and the next reconnect respawns it with the new code. <span class="knob-pill">K2</span> implicitly refreshes native-host.js too — the cascade arrow in the diagram.</p>
+  </div>
+
+  <footer>
+    ocic · refresh knobs <span class="sep">·</span> jun 14 2026 <span class="sep">·</span> codemode @ dcc8cc7 <span class="sep">·</span> noemica
+  </footer>
+
+</div>
+</body>
+</html>

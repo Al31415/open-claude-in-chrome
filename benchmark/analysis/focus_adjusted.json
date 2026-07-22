@@ -1,0 +1,67 @@
+[
+ {
+  "arm": "exp1a-fixed-brave",
+  "label": "OCIC fixed Brave",
+  "n": 365,
+  "flagged": 2,
+  "top": "computer:wait",
+  "raw_tool": 0.8880666454633077,
+  "adj_tool": 0.8543333093325297,
+  "raw_total": 23.362036844094593,
+  "adj_total": 23.328303507963817,
+  "med": 0.125,
+  "med_adj": 0.12400007247924805
+ },
+ {
+  "arm": "exp1a-fixed-chrome",
+  "label": "OCIC fixed Chrome",
+  "n": 386,
+  "flagged": 8,
+  "top": "computer:left_click",
+  "raw_tool": 1.4100333491961161,
+  "adj_tool": 0.913966687520345,
+  "raw_total": 26.4549976905187,
+  "adj_total": 25.958931028842926,
+  "med": 0.12650001049041748,
+  "med_adj": 0.12549996376037598
+ },
+ {
+  "arm": "exp1b-cinc-cold",
+  "label": "CinC original June",
+  "n": 511,
+  "flagged": 31,
+  "top": "find",
+  "raw_tool": 3.7279500365257263,
+  "adj_tool": 2.8255250414212543,
+  "raw_total": 41.9923478325208,
+  "adj_total": 41.08992283741633,
+  "med": 0.22699999809265137,
+  "med_adj": 0.1950000524520874
+ },
+ {
+  "arm": "exp1b-cinc-rerun",
+  "label": "CinC control",
+  "n": 417,
+  "flagged": 24,
+  "top": "find",
+  "raw_tool": 3.333233284950256,
+  "adj_tool": 2.6653999487559,
+  "raw_total": 32.81908341646194,
+  "adj_total": 32.15125008026759,
+  "med": 0.2929999828338623,
+  "med_adj": 0.2799999713897705
+ },
+ {
+  "arm": "exp1b-cinc-parity",
+  "label": "CinC parity",
+  "n": 349,
+  "flagged": 20,
+  "top": "find",
+  "raw_tool": 2.5671666145324705,
+  "adj_tool": 2.180133299032847,
+  "raw_total": 24.46385366121928,
+  "adj_total": 24.076820345719657,
+  "med": 0.2710001468658447,
+  "med_adj": 0.25999999046325684
+ }
+]

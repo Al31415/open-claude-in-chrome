@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Open Claude in Chrome Test Suite</title>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  :root { color-scheme: light; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 20px;
+    color: #1a1a1a;
+    background: #fafafa;
+  }
+  header {
+    position: sticky;
+    top: 0;
+    background: #fafafa;
+    padding: 16px 0;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 24px;
+    z-index: 10;
+  }
+  header .row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+  }
+  header .badges {
+    display: flex;
+    gap: 6px;
+  }
+  header .badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 16px;
+    border: 1px solid #d1d5db;
+    background: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 14px;
+    color: #6b7280;
+  }
+  header .badge.active { border-color: #2563eb; color: #2563eb; }
+  header .badge.done { background: #10b981; border-color: #10b981; color: #fff; }
+  h1, h2 { margin-top: 0; }
+  .card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .muted { color: #6b7280; font-size: 14px; }
+  button {
+    font-size: 16px;
+    padding: 10px 20px;
+    cursor: pointer;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+  }
+  button:hover { background: #1d4ed8; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  button.secondary { background: #fff; color: #1a1a1a; border: 1px solid #d1d5db; }
+  button.secondary:hover { background: #f3f4f6; }
+  label { display: block; margin: 16px 0 6px; font-weight: 500; }
+  label.inline { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; cursor: pointer; }
+  input[type="text"], input[type="email"] {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    box-sizing: border-box;
+  }
+  input[type="text"]:focus, input[type="email"]:focus { outline: none; border-color: #2563eb; }
+  input[type="checkbox"], input[type="radio"] { width: 18px; height: 18px; cursor: pointer; }
+  .error { color: #dc2626; font-size: 14px; margin-top: 4px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 16px;
+  }
+  .square {
+    aspect-ratio: 1;
+    font-size: 28px;
+    font-weight: 600;
+    background: #fff;
+    color: #1a1a1a;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+  }
+  .square:hover:not(:disabled) { background: #f3f4f6; }
+  .square.hit { background: #10b981; color: #fff; border-color: #10b981; }
+  .completion-banner {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #fff;
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .completion-banner h1 { font-size: 32px; margin: 0 0 8px; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 16px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+  th { font-size: 13px; text-transform: uppercase; color: #6b7280; }
+  .review-list { background: #f9fafb; border-radius: 6px; padding: 16px; margin: 16px 0; }
+  .review-list dt { font-weight: 600; margin-top: 8px; }
+  .review-list dt:first-child { margin-top: 0; }
+  .review-list dd { margin: 4px 0 0 0; color: #4b5563; }
+  .step-pill {
+    display: inline-block;
+    background: #eef2ff;
+    color: #4338ca;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { useState, useEffect, useMemo } = React;
+
+  const CHALLENGE_TITLES = {
+    1: "Single-Screen Form",
+    2: "Multi-Step Wizard",
+    3: "Repeat Submissions",
+    4: "Click Sequence"
+  };
+
+  function App() {
+    const [active, setActive] = useState(1);
+    // completions[n] = { startTime, endTime }
+    const [completions, setCompletions] = useState({});
+
+    function startChallenge(n) {
+      setCompletions((c) =>
+        c[n]?.startTime ? c : { ...c, [n]: { startTime: Date.now() } }
+      );
+    }
+
+    function finishChallenge(n) {
+      setCompletions((c) => ({
+        ...c,
+        [n]: { ...(c[n] ?? { startTime: Date.now() }), endTime: Date.now() }
+      }));
+    }
+
+    useEffect(() => {
+      if (active >= 1 && active <= 4) startChallenge(active);
+    }, [active]);
+
+    function advance() {
+      setActive((a) => a + 1);
+    }
+
+    return (
+      <div>
+        <ProgressHeader active={active} completions={completions} />
+        {active === 1 && (
+          <Challenge1
+            onComplete={() => {
+              finishChallenge(1);
+              advance();
+            }}
+          />
+        )}
+        {active === 2 && (
+          <Challenge2
+            onComplete={() => {
+              finishChallenge(2);
+              advance();
+            }}
+          />
+        )}
+        {active === 3 && (
+          <Challenge3
+            onComplete={() => {
+              finishChallenge(3);
+              advance();
+            }}
+          />
+        )}
+        {active === 4 && (
+          <Challenge4
+            onComplete={() => {
+              finishChallenge(4);
+              advance();
+            }}
+          />
+        )}
+        {active > 4 && <AllDone completions={completions} />}
+      </div>
+    );
+  }
+
+  function ProgressHeader({ active, completions }) {
+    const total = 4;
+    const currentLabel = active > total ? "Complete" : `${active} of ${total}`;
+    return (
+      <header>
+        <div className="row">
+          <div>
+            <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 600, textTransform: "uppercase" }}>
+              Open Claude in Chrome — Test Suite
+            </div>
+            <div style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>
+              {active > total ? "All challenges complete" : `Challenge ${active}: ${CHALLENGE_TITLES[active]}`}
+            </div>
+            <div className="muted">{currentLabel}</div>
+          </div>
+          <div className="badges">
+            {[1, 2, 3, 4].map((n) => {
+              const cls = completions[n]?.endTime
+                ? "badge done"
+                : n === active
+                ? "badge active"
+                : "badge";
+              return (
+                <span key={n} className={cls} title={CHALLENGE_TITLES[n]}>
+                  {completions[n]?.endTime ? "✓" : n}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      </header>
+    );
+  }
+
+  function Field({ label, id, type, value, onChange, error, placeholder }) {
+    return (
+      <div>
+        <label htmlFor={id}>{label}</label>
+        <input
+          id={id}
+          name={id}
+          type={type ?? "text"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+        />
+        {error && <div className="error">{error}</div>}
+      </div>
+    );
+  }
+
+  // ---------- Challenge 1 ----------
+  // Everything visible in one screenshot. Designed so a single look gives
+  // complete information for a batched fill + submit.
+  function Challenge1({ onComplete }) {
+    const [data, setData] = useState({
+      fullName: "",
+      email: "",
+      favoriteColor: "",
+      agreed: false
+    });
+    const [errors, setErrors] = useState(null);
+    const [done, setDone] = useState(false);
+
+    function submit(e) {
+      e.preventDefault();
+      const errs = {};
+      if (!data.fullName.trim()) errs.fullName = "Required";
+      if (!data.email.trim()) errs.email = "Required";
+      else if (!data.email.includes("@") || !data.email.includes("."))
+        errs.email = "Must be a valid email";
+      if (!data.favoriteColor.trim()) errs.favoriteColor = "Required";
+      if (!data.agreed) errs.agreed = "You must check the terms checkbox";
+      if (Object.keys(errs).length) {
+        setErrors(errs);
+        return;
+      }
+      setErrors(null);
+      setDone(true);
+    }
+
+    if (done) {
+      return (
+        <Success
+          title="Challenge 1 complete"
+          body="The form was submitted with all four fields. Continue to the wizard challenge."
+          onContinue={onComplete}
+        />
+      );
+    }
+
+    return (
+      <div className="card">
+        <h2>Challenge 1 — Single-Screen Form</h2>
+        <p className="muted">
+          Everything you need is visible at once: three required text fields and
+          a required terms checkbox. Pick any values. Submit when ready.
+        </p>
+        <form onSubmit={submit} noValidate>
+          <Field
+            label="Full Name"
+            id="fullName"
+            value={data.fullName}
+            onChange={(v) => setData({ ...data, fullName: v })}
+            placeholder="Jane Doe"
+            error={errors?.fullName}
+          />
+          <Field
+            label="Email"
+            id="email"
+            type="email"
+            value={data.email}
+            onChange={(v) => setData({ ...data, email: v })}
+            placeholder="jane@example.com"
+            error={errors?.email}
+          />
+          <Field
+            label="Favorite Color"
+            id="favoriteColor"
+            value={data.favoriteColor}
+            onChange={(v) => setData({ ...data, favoriteColor: v })}
+            placeholder="blue"
+            error={errors?.favoriteColor}
+          />
+          <label className="inline" style={{ marginTop: 16 }}>
+            <input
+              type="checkbox"
+              id="agreed"
+              name="agreed"
+              checked={data.agreed}
+              onChange={(e) => setData({ ...data, agreed: e.target.checked })}
+            />
+            I agree to the (fake) terms and conditions
+          </label>
+          {errors?.agreed && <div className="error">{errors.agreed}</div>}
+          <div style={{ marginTop: 24 }}>
+            <button type="submit">Submit</button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  // ---------- Challenge 2 ----------
+  // Multi-step wizard. Step 2's fields depend on Step 1's choice, so a single
+  // screenshot can't see the whole thing. Forces screenshot-action-screenshot.
+  function Challenge2({ onComplete }) {
+    const [step, setStep] = useState(1);
+    const [category, setCategory] = useState("");
+    const [details, setDetails] = useState({ a: "", b: "" });
+    const [error, setError] = useState(null);
+    const [done, setDone] = useState(false);
+
+    const labels = {
+      personal: { a: "First Name", b: "Birth Year" },
+      business: { a: "Company Name", b: "Tax ID" },
+      other: { a: "Description", b: "Reference Code" }
+    };
+
+    function nextFromStep1() {
+      if (!category) {
+        setError("Pick a category");
+        return;
+      }
+      setError(null);
+      setStep(2);
+    }
+
+    function nextFromStep2() {
+      if (!details.a.trim() || !details.b.trim()) {
+        setError("Fill in both fields");
+        return;
+      }
+      setError(null);
+      setStep(3);
+    }
+
+    function confirm() {
+      setDone(true);
+    }
+
+    if (done) {
+      return (
+        <Success
+          title="Challenge 2 complete"
+          body="The three-step wizard was submitted. Continue to the repeated-submission challenge."
+          onContinue={onComplete}
+        />
+      );
+    }
+
+    return (
+      <div className="card">
+        <h2>Challenge 2 — Multi-Step Wizard</h2>
+        <p className="muted">
+          Three steps. The fields on step 2 depend on the category you choose
+          on step 1, so you can't see the whole flow in a single screenshot.
+        </p>
+
+        {step === 1 && (
+          <div>
+            <span className="step-pill">Step 1 of 3</span>
+            <p>Choose a category:</p>
+            {["personal", "business", "other"].map((opt) => (
+              <label key={opt} className="inline" style={{ display: "flex", margin: "8px 0" }}>
+                <input
+                  type="radio"
+                  name="category"
+                  value={opt}
+                  checked={category === opt}
+                  onChange={() => setCategory(opt)}
+                />
+                {opt[0].toUpperCase() + opt.slice(1)}
+              </label>
+            ))}
+            {error && <div className="error">{error}</div>}
+            <div style={{ marginTop: 24 }}>
+              <button onClick={nextFromStep1}>Next</button>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div>
+            <span className="step-pill">Step 2 of 3 — {category}</span>
+            <Field
+              label={labels[category].a}
+              id="wizard_a"
+              value={details.a}
+              onChange={(v) => setDetails({ ...details, a: v })}
+            />
+            <Field
+              label={labels[category].b}
+              id="wizard_b"
+              value={details.b}
+              onChange={(v) => setDetails({ ...details, b: v })}
+            />
+            {error && <div className="error">{error}</div>}
+            <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
+              <button className="secondary" onClick={() => setStep(1)}>
+                Back
+              </button>
+              <button onClick={nextFromStep2}>Next</button>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div>
+            <span className="step-pill">Step 3 of 3 — review</span>
+            <p>Confirm your answers:</p>
+            <div className="review-list">
+              <dt>Category</dt>
+              <dd>{category}</dd>
+              <dt>{labels[category].a}</dt>
+              <dd>{details.a}</dd>
+              <dt>{labels[category].b}</dt>
+              <dd>{details.b}</dd>
+            </div>
+            <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
+              <button className="secondary" onClick={() => setStep(2)}>
+                Back
+              </button>
+              <button onClick={confirm}>Confirm</button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ---------- Challenge 3 ----------
+  // Same form layout as Challenge 1, must be submitted three times for three
+  // different people. The layout doesn't change between submissions, so the
+  // model should be able to reuse what it learned in Challenge 1.
+  function Challenge3({ onComplete }) {
+    const TARGET = 3;
+    const [data, setData] = useState({
+      fullName: "",
+      email: "",
+      favoriteColor: "",
+      agreed: false
+    });
+    const [errors, setErrors] = useState(null);
+    const [count, setCount] = useState(0);
+    const [lastSubmission, setLastSubmission] = useState(null);
+    const [done, setDone] = useState(false);
+
+    function reset() {
+      setData({ fullName: "", email: "", favoriteColor: "", agreed: false });
+      setErrors(null);
+    }
+
+    function submit(e) {
+      e.preventDefault();
+      const errs = {};
+      if (!data.fullName.trim()) errs.fullName = "Required";
+      if (!data.email.trim()) errs.email = "Required";
+      else if (!data.email.includes("@") || !data.email.includes("."))
+        errs.email = "Must be a valid email";
+      if (!data.favoriteColor.trim()) errs.favoriteColor = "Required";
+      if (!data.agreed) errs.agreed = "You must check the terms checkbox";
+      if (Object.keys(errs).length) {
+        setErrors(errs);
+        return;
+      }
+      const next = count + 1;
+      setCount(next);
+      setLastSubmission({ ...data });
+      reset();
+      if (next >= TARGET) setDone(true);
+    }
+
+    if (done) {
+      return (
+        <Success
+          title="Challenge 3 complete"
+          body={`All ${TARGET} submissions saved. Continue to the click-sequence challenge.`}
+          onContinue={onComplete}
+        />
+      );
+    }
+
+    return (
+      <div className="card">
+        <h2>Challenge 3 — Repeat Submissions</h2>
+        <p className="muted">
+          Same form as Challenge 1, but submit it <strong>{TARGET} times</strong> with
+          different values each time. The form resets automatically after each
+          submission. Use any values; they're not validated against anything
+          besides "non-empty" and "valid-looking email".
+        </p>
+        <div
+          style={{
+            background: "#eef2ff",
+            color: "#4338ca",
+            padding: "10px 14px",
+            borderRadius: 6,
+            fontWeight: 600,
+            marginBottom: 16,
+            display: "inline-block"
+          }}
+        >
+          Submissions so far: {count} / {TARGET}
+        </div>
+        {lastSubmission && count < TARGET && (
+          <p className="muted" style={{ marginTop: 0 }}>
+            Saved: {lastSubmission.fullName} ({lastSubmission.email}, {lastSubmission.favoriteColor}).
+            Now fill in a different person.
+          </p>
+        )}
+        <form onSubmit={submit} noValidate>
+          <Field
+            label="Full Name"
+            id="fullName"
+            value={data.fullName}
+            onChange={(v) => setData({ ...data, fullName: v })}
+            placeholder="Jane Doe"
+            error={errors?.fullName}
+          />
+          <Field
+            label="Email"
+            id="email"
+            type="email"
+            value={data.email}
+            onChange={(v) => setData({ ...data, email: v })}
+            placeholder="jane@example.com"
+            error={errors?.email}
+          />
+          <Field
+            label="Favorite Color"
+            id="favoriteColor"
+            value={data.favoriteColor}
+            onChange={(v) => setData({ ...data, favoriteColor: v })}
+            placeholder="blue"
+            error={errors?.favoriteColor}
+          />
+          <label className="inline" style={{ marginTop: 16 }}>
+            <input
+              type="checkbox"
+              id="agreed"
+              name="agreed"
+              checked={data.agreed}
+              onChange={(e) => setData({ ...data, agreed: e.target.checked })}
+            />
+            I agree to the (fake) terms and conditions
+          </label>
+          {errors?.agreed && <div className="error">{errors.agreed}</div>}
+          <div style={{ marginTop: 24 }}>
+            <button type="submit">Submit ({count + 1} of {TARGET})</button>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
+  // ---------- Challenge 4 ----------
+  // A 3x3 grid of numbered squares. The instruction generates a random
+  // sequence per page load and asks the model to click in that exact order.
+  // Single screenshot gives full information (positions + sequence), so this
+  // is highly batchable — every square coordinate is visible at once.
+  function Challenge4({ onComplete }) {
+    const sequence = useMemo(() => {
+      const arr = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }, []);
+
+    const [clicked, setClicked] = useState([]);
+    const [wrong, setWrong] = useState(false);
+    const [done, setDone] = useState(false);
+
+    function onSquareClick(n) {
+      if (done) return;
+      const idx = clicked.length;
+      if (sequence[idx] !== n) {
+        setWrong(true);
+        setClicked([]);
+        return;
+      }
+      setWrong(false);
+      const next = [...clicked, n];
+      setClicked(next);
+      if (next.length === sequence.length) setDone(true);
+    }
+
+    if (done) {
+      return (
+        <Success
+          title="Challenge 4 complete"
+          body="All nine squares were clicked in the correct order. Continue to see the final summary."
+          onContinue={onComplete}
+        />
+      );
+    }
+
+    return (
+      <div className="card">
+        <h2>Challenge 4 — Click Sequence</h2>
+        <p className="muted">
+          A 3×3 grid with the numbers 1–9. Click the squares in the exact order
+          shown below. Wrong click resets your progress. Every square is visible
+          at once, so a single screenshot has all the information you need.
+        </p>
+        <p style={{ fontSize: 18 }}>
+          <strong>Sequence:</strong>{" "}
+          {sequence.map((n, i) => (
+            <span
+              key={i}
+              style={{
+                display: "inline-block",
+                minWidth: 28,
+                textAlign: "center",
+                padding: "2px 8px",
+                margin: "0 4px",
+                borderRadius: 4,
+                background: i < clicked.length ? "#d1fae5" : "#f3f4f6",
+                color: i < clicked.length ? "#065f46" : "#1a1a1a",
+                textDecoration: i < clicked.length ? "line-through" : "none"
+              }}
+            >
+              {n}
+            </span>
+          ))}
+        </p>
+        <p className="muted">
+          Progress: {clicked.length} / {sequence.length}
+          {wrong && (
+            <span style={{ color: "#dc2626", marginLeft: 8 }}>
+              Wrong square — sequence reset, start over.
+            </span>
+          )}
+        </p>
+        <div className="grid">
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={"square" + (clicked.includes(n) ? " hit" : "")}
+              onClick={() => onSquareClick(n)}
+              disabled={done}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // ---------- Final summary ----------
+  function AllDone({ completions }) {
+    function sec(n) {
+      const c = completions[n];
+      if (!c?.startTime || !c?.endTime) return "—";
+      return ((c.endTime - c.startTime) / 1000).toFixed(2);
+    }
+    const start = completions[1]?.startTime;
+    const end = completions[4]?.endTime;
+    const total =
+      start && end ? ((end - start) / 1000).toFixed(2) : "—";
+    return (
+      <div>
+        <div className="completion-banner">
+          <h1>All Challenges Complete</h1>
+          <p style={{ margin: 0, opacity: 0.9 }}>
+            The test suite is finished. You can stop here.
+          </p>
+        </div>
+        <div className="card">
+          <h2>Per-challenge wall-clock</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Challenge</th>
+                <th>Title</th>
+                <th>Time (s)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {[1, 2, 3, 4].map((n) => (
+                <tr key={n}>
+                  <td>{n}</td>
+                  <td>{CHALLENGE_TITLES[n]}</td>
+                  <td>{sec(n)}</td>
+                </tr>
+              ))}
+              <tr>
+                <td colSpan={2}>
+                  <strong>Total</strong>
+                </td>
+                <td>
+                  <strong>{total}</strong>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p className="muted" style={{ marginTop: 12 }}>
+            Wall-clock between the first interaction with each challenge and
+            its completion. This is browser-side timing; it doesn't include
+            the model's thinking time between tool calls.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  function Success({ title, body, onContinue }) {
+    return (
+      <div className="card">
+        <h2>{title} ✓</h2>
+        <p>{body}</p>
+        <button onClick={onContinue}>Continue</button>
+      </div>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

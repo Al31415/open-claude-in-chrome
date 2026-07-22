@@ -1,0 +1,52 @@
+{
+ "exp1a-fixed-chrome": {
+  "dashdish-8": "Breakfast, Fast Food, and Coffee.",
+  "zilloft-10": "160 (Zilloft shows 160 \"Houses\"/\"Townhomes\" listings in the San Francisco, CA search results when filtering price to \"Up to $500K\" and Home Type to Houses + Tow",
+  "zilloft-2": "147 listings are displayed when filtering San Francisco homes to 3 bedrooms and 2 bathrooms."
+ },
+ "exp1a-fixed-brave": {
+  "dashdish-8": "Breakfast, Fast Food, and Coffee"
+ },
+ "exp1b-cinc-cold": {
+  "dashdish-8": "Breakfast, Fast Food, Coffee",
+  "zilloft-9": "$195,000,000",
+  "zilloft-5": "3 results",
+  "zilloft-2": "147 listings are displayed when filtering San Francisco listings to homes with 3 bedrooms and 2 bathrooms (exact match)."
+ },
+ "exp1b-cinc-rerun": {
+  "dashdish-8": "The first three categories displayed on the homepage are Breakfast, Fast Food, and Coffee."
+ },
+ "exp1b-cinc-parity": {
+  "dashdish-8": "Breakfast, Fast Food, Coffee",
+  "zilloft-10": "160 listings (Houses + Townhomes combined) are shown in San Francisco, CA priced up to $500,000, per the Zilloft site's filtered search results (Home Type: Hous",
+  "zilloft-2": "147 listings are displayed when filtering San Francisco, CA homes for 3 bedrooms and 2 bathrooms."
+ },
+ "exp2a-fixed-brave": {
+  "dashdish-8": "The first three categories of deliverable food shown on the Dashdish homepage are Ramen, Breakfast, and Fast Food.",
+  "zilloft-10": "160 Houses/Townhomes are listed in San Francisco with a price below $500,000.",
+  "zilloft-5": "3 results are displayed after filtering San Jose listings for Townhomes priced between $750,000 and $1,000,000."
+ },
+ "exp2b-fixed-brave": {
+  "dashdish-8": "Breakfast, Fast Food, and Coffee (the first three cuisine/category icons shown in the category row on the DashDish homepage)."
+ },
+ "exp3c-analysis": {
+  "dashdish-8": "The first three categories of deliverable food shown on the DashDish homepage are Breakfast, Fast Food, and Coffee."
+ },
+ "exp3d-experiential-analysis": {
+  "dashdish-8": "The first three food categories shown on the homepage are Breakfast, Fast Food, and Coffee.",
+  "zilloft-10": "158 \u2014 I searched \"San Francisco, CA\" on the Zilloft homes page, filtered Home Type to Houses + Townhomes (dropping the count from 522 to 405), then set the pric"
+ },
+ "exp3b-brave": {
+  "dashdish-8": "The first three deliverable food categories shown on the Dashdish homepage's category bar are Ramen, Breakfast, and Fast Food."
+ },
+ "exp4a-experiential-fork": {
+  "dashdish-8": "Ramen, Breakfast, and Fast Food",
+  "zilloft-10": "160 total listings (158 Houses + 2 Townhomes) are listed in the \"San Francisco, CA\" search with a price below $500,000.",
+  "zilloft-5": "3 results are displayed after filtering San Jose listings for Townhomes priced between $750,000 and $1,000,000.",
+  "zilloft-2": "147 listings are displayed after filtering San Francisco homes for 3 bedrooms and 2 bathrooms."
+ },
+ "exp4b-expert-fork": {
+  "dashdish-8": "The first three categories of deliverable food shown on the Dashdish homepage (in the category carousel at the top) are Ramen, Breakfast, and Fast Food.",
+  "zilloft-2": "36 listings are displayed after filtering San Francisco homes to 3+ bedrooms and 2+ bathrooms."
+ }
+}

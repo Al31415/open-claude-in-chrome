@@ -1,0 +1,683 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ocic — the levers of guidance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f8f5e9;
+    --surface: #fffcf0;
+    --card: #fdfaea;
+    --fg: #1a1a1c;
+    --muted: rgba(26,26,28,0.55);
+    --dim: rgba(26,26,28,0.42);
+    --faint: rgba(26,26,28,0.25);
+    --border: rgba(26,26,28,0.12);
+    --border-soft: rgba(26,26,28,0.08);
+    --accent: #2563eb;
+    --accent-soft: rgba(37,99,235,0.10);
+    --accent-heavy: rgba(37,99,235,0.22);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 64px 40px 96px; }
+
+  .eyebrow {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin-bottom: 32px;
+  }
+
+  h1 {
+    font-family: "EB Garamond", "Times New Roman", serif;
+    font-weight: 500;
+    font-size: 56px;
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin: 0 0 24px 0;
+  }
+  h1 em {
+    color: var(--accent);
+    font-style: italic;
+    font-weight: 500;
+  }
+
+  .lede {
+    font-family: "EB Garamond", serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 20px;
+    color: var(--muted);
+    margin: 0 0 24px 0;
+    max-width: 720px;
+  }
+
+  .meta {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--dim);
+    margin: 0 0 56px 0;
+  }
+  .meta .sep { margin: 0 8px; color: var(--faint); }
+
+  h2 {
+    font-family: "EB Garamond", serif;
+    font-weight: 500;
+    font-size: 32px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    margin: 72px 0 24px 0;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+  }
+  h2 .num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+
+  h3 {
+    font-family: "Inter", sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    margin: 32px 0 12px 0;
+  }
+  h4 {
+    font-family: "Inter", sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 24px 0 12px 0;
+  }
+
+  p { margin: 0 0 16px 0; }
+  strong { font-weight: 600; }
+
+  code, .mono {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 0.92em;
+  }
+  code {
+    background: var(--accent-soft);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: var(--fg);
+  }
+
+  a {
+    color: var(--fg);
+    text-decoration: underline;
+    text-decoration-color: var(--accent);
+    text-decoration-style: dotted;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 3px;
+  }
+
+  blockquote {
+    margin: 24px 0;
+    padding: 12px 20px;
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    font-family: "EB Garamond", serif;
+    font-style: italic;
+    font-size: 18px;
+    color: var(--muted);
+  }
+
+  .callout {
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-heavy);
+    padding: 20px 24px;
+    margin: 32px 0;
+    border-radius: 2px;
+  }
+  .callout h4 { margin-top: 0; color: var(--accent); }
+  .callout p:last-child { margin-bottom: 0; }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    padding: 24px;
+    margin: 24px 0;
+    border-radius: 2px;
+  }
+
+  .tag-pill {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    padding: 3px 10px;
+    border-radius: 999px;
+    white-space: nowrap;
+    display: inline-block;
+  }
+
+  /* Layer card grid */
+  .layer-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 24px 28px;
+    margin: 16px 0;
+    border-radius: 2px;
+    display: grid;
+    grid-template-columns: 56px 1fr;
+    gap: 20px;
+  }
+  .layer-card.unused {
+    border-left-color: var(--faint);
+    opacity: 0.85;
+  }
+  .layer-card .layer-num {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 28px;
+    font-weight: 500;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .layer-card.unused .layer-num { color: var(--faint); }
+  .layer-card .layer-body h3 {
+    margin: 0 0 6px 0;
+    font-size: 18px;
+  }
+  .layer-card .layer-body .file {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--dim);
+    margin: 0 0 12px 0;
+  }
+  .layer-card .layer-body p { margin: 8px 0 0 0; font-size: 15px; }
+  .layer-card ul { font-size: 15px; margin: 8px 0 0 0; padding-left: 18px; }
+  .layer-card ul li { margin-bottom: 4px; }
+
+  /* Sub-layer table inside L4 */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 0 0;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    vertical-align: top;
+  }
+  th {
+    font-family: "Inter", sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--dim);
+  }
+  td.mono, th.mono { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 12px; }
+
+  /* Illustration */
+  .illustration {
+    margin: 40px 0 16px 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 2px;
+    padding: 32px;
+    overflow-x: auto;
+  }
+  .illustration svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+  .illustration .caption {
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--dim);
+    text-align: center;
+    margin-top: 16px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+
+  footer {
+    margin-top: 96px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border);
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--dim);
+  }
+  footer .sep { margin: 0 8px; color: var(--faint); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">ocic · internal · may 25 2026</div>
+
+  <h1>The levers of <em>guidance</em><br/>that ocic gives the agent.</h1>
+
+  <p class="lede">
+    Every surface where text or structure flows from open claude in chrome into
+    the model's context. Seven layers — what they are, where they live, what to
+    pull when you want the agent to behave differently.
+  </p>
+
+  <div class="meta">
+    open claude in chrome <span class="sep">·</span> codemode branch <span class="sep">·</span> ref dcc8cc7
+  </div>
+
+  <h2><span class="num">01</span>at a glance</h2>
+
+  <p>
+    The model has no privileged view into ocic — it only sees what the MCP
+    protocol surfaces to its host (claude code) and what tool calls return. Every
+    influence ocic has over agent behavior funnels through one of seven layers,
+    listed below from most pervasive to most situational. The illustration
+    shows them stacked: each layer adds its text to the agent's context window,
+    earlier layers carrying more authority by virtue of being present every turn.
+  </p>
+
+  <div class="illustration">
+    <!-- 720x520 stacked-layer illustration -->
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 540" role="img" aria-label="The seven layers of guidance feeding into the agent's context window">
+      <defs>
+        <!-- subtle arrow marker -->
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/>
+        </marker>
+        <pattern id="dotgrid" x="0" y="0" width="6" height="6" patternUnits="userSpaceOnUse">
+          <circle cx="1" cy="1" r="0.5" fill="rgba(26,26,28,0.10)"/>
+        </pattern>
+      </defs>
+
+      <!-- background subtle dot grid behind the stack area -->
+      <rect x="0" y="0" width="760" height="540" fill="#fffcf0"/>
+      <rect x="40" y="40" width="430" height="460" fill="url(#dotgrid)" opacity="0.55"/>
+
+      <!-- stack title -->
+      <text x="40" y="28" font-family="JetBrains Mono, monospace" font-size="11" fill="rgba(26,26,28,0.42)" letter-spacing="2">OCIC CODEBASE → LAYER → MODEL CONTEXT</text>
+
+      <!-- Seven layer bars -->
+      <!-- coordinates: x=40, width=420; rows from y=60 stepping by 60 -->
+
+      <!-- L1 (unused: lighter stroke) -->
+      <g>
+        <rect x="40" y="60" width="420" height="48" fill="#fdfaea" stroke="rgba(26,26,28,0.25)" stroke-width="1"/>
+        <rect x="40" y="60" width="4" height="48" fill="rgba(26,26,28,0.25)"/>
+        <text x="58" y="83" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="rgba(26,26,28,0.55)">L1</text>
+        <text x="90" y="79" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="rgba(26,26,28,0.55)">MCP server `instructions`</text>
+        <text x="90" y="98" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.42)">currently unused — system-prompt-adjacent slot</text>
+      </g>
+
+      <!-- L2 -->
+      <g>
+        <rect x="40" y="120" width="420" height="48" fill="#fdfaea" stroke="rgba(26,26,28,0.12)" stroke-width="1"/>
+        <rect x="40" y="120" width="4" height="48" fill="#2563eb"/>
+        <text x="58" y="143" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="#2563eb">L2</text>
+        <text x="90" y="139" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="#1a1a1c">per-tool `description`</text>
+        <text x="90" y="158" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.55)">what the model reads in `tools/list`</text>
+      </g>
+
+      <!-- L3 -->
+      <g>
+        <rect x="40" y="180" width="420" height="48" fill="#fdfaea" stroke="rgba(26,26,28,0.12)" stroke-width="1"/>
+        <rect x="40" y="180" width="4" height="48" fill="#2563eb"/>
+        <text x="58" y="203" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="#2563eb">L3</text>
+        <text x="90" y="199" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="#1a1a1c">per-parameter `.describe()`</text>
+        <text x="90" y="218" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.55)">value-level guidance, twice-effective (direct + JSDoc)</text>
+      </g>
+
+      <!-- L4 (the heavy one — taller) -->
+      <g>
+        <rect x="40" y="240" width="420" height="72" fill="rgba(37,99,235,0.10)" stroke="rgba(37,99,235,0.22)" stroke-width="1"/>
+        <rect x="40" y="240" width="4" height="72" fill="#2563eb"/>
+        <text x="58" y="265" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="#2563eb">L4</text>
+        <text x="90" y="261" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="#1a1a1c">execute_code description</text>
+        <text x="90" y="280" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.55)">codemode + hybrid only — six sub-layers:</text>
+        <text x="90" y="298" font-family="JetBrains Mono, monospace" font-size="10.5" fill="rgba(26,26,28,0.55)">a framing  ·  b examples  ·  c rules  ·  d strategy  ·  e generated TS api  ·  f extra notes</text>
+      </g>
+
+      <!-- L5 -->
+      <g>
+        <rect x="40" y="324" width="420" height="48" fill="#fdfaea" stroke="rgba(26,26,28,0.12)" stroke-width="1"/>
+        <rect x="40" y="324" width="4" height="48" fill="#2563eb"/>
+        <text x="58" y="347" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="#2563eb">L5</text>
+        <text x="90" y="343" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="#1a1a1c">tool result `content` text</text>
+        <text x="90" y="362" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.55)">shapes what the model learns to reuse — e.g. ref_X</text>
+      </g>
+
+      <!-- L6 -->
+      <g>
+        <rect x="40" y="384" width="420" height="48" fill="#fdfaea" stroke="rgba(26,26,28,0.12)" stroke-width="1"/>
+        <rect x="40" y="384" width="4" height="48" fill="#2563eb"/>
+        <text x="58" y="407" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="#2563eb">L6</text>
+        <text x="90" y="403" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="#1a1a1c">tool error text</text>
+        <text x="90" y="422" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.55)">a good error names the next correct call</text>
+      </g>
+
+      <!-- L7 -->
+      <g>
+        <rect x="40" y="444" width="420" height="48" fill="#fdfaea" stroke="rgba(26,26,28,0.12)" stroke-width="1"/>
+        <rect x="40" y="444" width="4" height="48" fill="#2563eb"/>
+        <text x="58" y="467" font-family="JetBrains Mono, monospace" font-size="14" font-weight="500" fill="#2563eb">L7</text>
+        <text x="90" y="463" font-family="Inter, sans-serif" font-size="14" font-weight="600" fill="#1a1a1c">execute_code metadata</text>
+        <text x="90" y="482" font-family="Inter, sans-serif" font-size="12" fill="rgba(26,26,28,0.55)">Execution: Xms  ·  Tool calls (N): tool (Xms), …</text>
+      </g>
+
+      <!-- Arrows to agent context -->
+      <g stroke="#2563eb" stroke-width="1.2" fill="none" opacity="0.7">
+        <path d="M 470 84 Q 540 84, 580 224" marker-end="url(#arr)"/>
+        <path d="M 470 144 Q 540 144, 580 244" marker-end="url(#arr)"/>
+        <path d="M 470 204 Q 540 204, 580 264" marker-end="url(#arr)"/>
+        <path d="M 470 276 L 580 286" marker-end="url(#arr)"/>
+        <path d="M 470 348 Q 540 348, 580 308" marker-end="url(#arr)"/>
+        <path d="M 470 408 Q 540 408, 580 328" marker-end="url(#arr)"/>
+        <path d="M 470 468 Q 540 468, 580 348" marker-end="url(#arr)"/>
+      </g>
+
+      <!-- Agent context window (right side) -->
+      <g>
+        <rect x="580" y="200" width="160" height="160" fill="#fffcf0" stroke="#1a1a1c" stroke-width="1.2"/>
+        <text x="660" y="226" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.42)" text-anchor="middle" letter-spacing="2">CONTEXT WINDOW</text>
+        <text x="660" y="262" font-family="EB Garamond, serif" font-style="italic" font-size="16" fill="#1a1a1c" text-anchor="middle">the agent</text>
+        <text x="660" y="284" font-family="EB Garamond, serif" font-style="italic" font-size="16" fill="#1a1a1c" text-anchor="middle">picks the</text>
+        <text x="660" y="306" font-family="EB Garamond, serif" font-style="italic" font-size="16" fill="#1a1a1c" text-anchor="middle">next tool</text>
+        <text x="660" y="328" font-family="EB Garamond, serif" font-style="italic" font-size="16" fill="#1a1a1c" text-anchor="middle">from this.</text>
+      </g>
+
+      <!-- Footer line on illustration -->
+      <text x="40" y="528" font-family="JetBrains Mono, monospace" font-size="10" fill="rgba(26,26,28,0.42)" letter-spacing="1.5">EVERY ARROW IS TEXT FLOWING INTO THE PROMPT — NO OTHER CHANNEL EXISTS</text>
+    </svg>
+    <div class="caption">L1–L7 · the only places ocic touches the agent's mind</div>
+  </div>
+
+  <h2><span class="num">02</span>the seven layers</h2>
+
+  <div class="layer-card unused">
+    <div class="layer-num">L1</div>
+    <div class="layer-body">
+      <h3>MCP server <code>instructions</code> field</h3>
+      <p class="file">currently unused · would live in: host/mcp-server.js, host/codemode/server-codemode.js, host/codemode/server-hybrid.js</p>
+      <p>
+        The MCP protocol's <code>initialize</code> response carries an optional
+        top-level <code>instructions</code> string. Claude Code surfaces this as
+        system-prompt-adjacent context, present from turn one and across every
+        tool call. ocic does not set it today.
+      </p>
+      <h4>best for</h4>
+      <p>Global mode-setting that you want the model to read once and remember —
+      "always call <code>tabs_context_mcp</code> first," "screenshots are stored
+      under <code>imageId</code>," anything that's true regardless of which tool
+      is being invoked.</p>
+    </div>
+  </div>
+
+  <div class="layer-card">
+    <div class="layer-num">L2</div>
+    <div class="layer-body">
+      <h3>per-tool <code>description</code></h3>
+      <p class="file">host/tool-definitions.js</p>
+      <p>
+        Every entry in <code>tools/list</code> carries a description string the
+        model reads while choosing what to call. This is the workhorse — most
+        agent behavior is steered here.
+      </p>
+      <h4>best for</h4>
+      <p>What the tool does, when to use it, what NOT to use it for, the most
+      common foot-guns. The <code>tabs_close_mcp</code> description explicitly
+      calls out "do not use navigate to about:blank to close a tab" because the
+      model used to default to that workaround.</p>
+    </div>
+  </div>
+
+  <div class="layer-card">
+    <div class="layer-num">L3</div>
+    <div class="layer-body">
+      <h3>per-parameter <code>.describe()</code></h3>
+      <p class="file">host/tool-definitions.js  (inside each tool's paramShape)</p>
+      <p>
+        Every zod field's <code>.describe(...)</code> string becomes a JSON
+        Schema description on that property. Twice-effective: surfaced directly
+        in <code>tools/list</code> AND reflowed as <code>@param</code> JSDoc
+        lines inside the generated TypeScript API block (L4e).
+      </p>
+      <h4>best for</h4>
+      <p>Value-level guidance — required vs. optional, accepted formats, "Tab
+      IDs must be in the current MCP group," etc.</p>
+    </div>
+  </div>
+
+  <div class="layer-card">
+    <div class="layer-num">L4</div>
+    <div class="layer-body">
+      <h3><code>execute_code</code> description</h3>
+      <p class="file">codemode + hybrid variants only · assembled across multiple files</p>
+      <p>
+        The biggest single lever in the code-mode variants. Composed from six
+        sub-layers, top to bottom in the order the model reads them.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 56px">sub</th>
+            <th>contents</th>
+            <th>where</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">L4a</td>
+            <td>Opening framing + namespace rule (<code>chrome.*</code>)</td>
+            <td class="mono">common.js (buildExecuteCodeDescription)</td>
+          </tr>
+          <tr>
+            <td class="mono">L4b</td>
+            <td>Quick examples (currently two)</td>
+            <td class="mono">common.js (same template)</td>
+          </tr>
+          <tr>
+            <td class="mono">L4c</td>
+            <td>Rules (no setTimeout, no screenshot inside, …)</td>
+            <td class="mono">common.js (same template)</td>
+          </tr>
+          <tr>
+            <td class="mono">L4d</td>
+            <td>"When to use vs. direct tools" — strategy</td>
+            <td class="mono">common.js (same template)</td>
+          </tr>
+          <tr>
+            <td class="mono">L4e</td>
+            <td>Generated TS API block (<code>declare const chrome: {...}</code>) — inherits L2 + L3</td>
+            <td class="mono">tool-definitions.js (generateTsApi)</td>
+          </tr>
+          <tr>
+            <td class="mono">L4f</td>
+            <td>Per-variant EXTRA_NOTES (codemode mentions screenshot/zoom siblings; hybrid mentions computer sibling)</td>
+            <td class="mono">server-codemode.js / server-hybrid.js</td>
+          </tr>
+        </tbody>
+      </table>
+      <h4>editing tip</h4>
+      <p>L4a–d is hand-authored template. L4e is generated from L2 + L3 — sharpening an upstream tool description automatically sharpens the JSDoc inside <code>execute_code</code> too. You only ever write the description in one place.</p>
+    </div>
+  </div>
+
+  <div class="layer-card">
+    <div class="layer-num">L5</div>
+    <div class="layer-body">
+      <h3>tool result <code>content</code> text</h3>
+      <p class="file">extension/background.js  (per-handler output)</p>
+      <p>Every successful tool call's return value flows into the model's
+      context as text content. ocic actively shapes these for several tools:</p>
+      <ul>
+        <li><code>tabs_context_mcp</code> → JSON of tabs followed by human-readable "Tab Context:" prose.</li>
+        <li><code>navigate</code> → "Navigated to X.\n## Pages\n…" markdown.</li>
+        <li><code>tabs_create_mcp</code> → "Created new tab. Tab ID: N" + context.</li>
+        <li><code>tabs_close_mcp</code> → "Closed N tab(s)…" + remaining context.</li>
+        <li><code>read_page</code> → accessibility tree with <code>[ref_X]</code> markers the model learns to reuse.</li>
+        <li><code>computer({action:"screenshot"})</code> → image block + <code>imageId</code> the model uses with <code>upload_image</code>.</li>
+      </ul>
+      <h4>best for</h4>
+      <p>Teaching the model patterns by what it sees come back. The
+      <code>[ref_X]</code> convention exists only because <code>read_page</code>
+      emits it — once seen, the model writes <code>chrome.computer({action:
+      "left_click", ref: "ref_2"})</code> on its own.</p>
+    </div>
+  </div>
+
+  <div class="layer-card">
+    <div class="layer-num">L6</div>
+    <div class="layer-body">
+      <h3>tool error text</h3>
+      <p class="file">extension/background.js  ·  host/tool-runtime.js</p>
+      <p>When a tool errors, the string flows back to the model as the result
+      content. ocic produces several distinctive ones, each chosen to make the
+      next call obvious:</p>
+      <ul>
+        <li><code>"Tab X is not in the MCP group."</code> — guards every tab-scoped tool.</li>
+        <li><code>"Invalid URL: '…'. Could not parse as a valid URL."</code> — navigate.</li>
+        <li><code>"Could not resolve ref '…' to coordinates."</code> — computer.</li>
+        <li><code>"Sandbox unavailable: …"</code> / <code>"Sandbox not ready after 30s — retry shortly."</code> — execute_code lifecycle.</li>
+        <li><code>"Browser extension is not connected."</code> — tool-runtime transport.</li>
+      </ul>
+      <h4>best for</h4>
+      <p>Giving the model an actionable recovery path. A good error names what
+      the model should do next — vague errors burn a turn on diagnosis.</p>
+    </div>
+  </div>
+
+  <div class="layer-card">
+    <div class="layer-num">L7</div>
+    <div class="layer-body">
+      <h3>per-call <code>execute_code</code> metadata</h3>
+      <p class="file">host/codemode/common.js (packExecuteResult) · host/codemode/worker/worker.js</p>
+      <p>Codemode + hybrid prepend two lines to every <code>execute_code</code>
+      result:</p>
+      <blockquote style="font-family: 'JetBrains Mono', monospace; font-style: normal; font-size: 13px; line-height: 1.6;">
+        Execution: 1650ms<br/>
+        Tool calls (4): tabs_context_mcp (12ms), navigate (627ms), computer (1004ms), get_page_text (5ms)<br/>
+        Result:<br/>
+        …
+      </blockquote>
+      <h4>best for</h4>
+      <p>A feedback loop on the model's own batching strategy. The model can
+      see which inner call dragged the batch down and self-correct on the next
+      one — without needing description guidance to explain how to interpret
+      the numbers.</p>
+    </div>
+  </div>
+
+  <h2><span class="num">03</span>file → lever quick reference</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>file</th>
+        <th>which levers</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="mono">host/tool-definitions.js</td>
+        <td>L2, L3, L4e</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/common.js</td>
+        <td>L4a–d (description template), L7 (metadata prefixing)</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/server-codemode.js</td>
+        <td>L4f · can add L1</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/server-hybrid.js</td>
+        <td>L4f · can add L1</td>
+      </tr>
+      <tr>
+        <td class="mono">host/mcp-server.js</td>
+        <td>can add L1</td>
+      </tr>
+      <tr>
+        <td class="mono">extension/background.js</td>
+        <td>L5 (result text), L6 (error text)</td>
+      </tr>
+      <tr>
+        <td class="mono">host/tool-runtime.js</td>
+        <td>L6 (transport-layer errors)</td>
+      </tr>
+      <tr>
+        <td class="mono">host/codemode/worker/worker.js</td>
+        <td>L7 (per-inner-call latency telemetry)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2><span class="num">04</span>what is <em>not</em> a lever</h2>
+
+  <p>Worth knowing what you can't touch, so you don't spend time looking for it:</p>
+
+  <div class="card">
+    <ul>
+      <li><strong>The system prompt.</strong> Claude Code controls it. ocic has no hook into it.</li>
+      <li><strong>The user's conversation history.</strong> Out of reach.</li>
+      <li><strong>Tool ordering in <code>tools/list</code>.</strong> The model picks by name and description, not list position.</li>
+      <li><strong>JSON Schema fields other than <code>description</code>.</strong> <code>format</code>, <code>pattern</code>, and <code>examples</code> are technically in the schema, but most MCP clients don't surface them prominently to the model.</li>
+    </ul>
+  </div>
+
+  <h2><span class="num">05</span>where the biggest swings live</h2>
+
+  <p>If you have an hour, this is the order of impact:</p>
+
+  <div class="callout">
+    <h4>biggest swings</h4>
+    <p>
+      <strong>L4a — the framing + namespace rule.</strong> One bad line here
+      sends the model writing <code>computer(…)</code> instead of
+      <code>chrome.computer(…)</code> and you lose minutes per session.
+    </p>
+    <p>
+      <strong>L4d — strategy guidance.</strong> Tells the model <em>when</em>
+      to reach for execute_code vs. direct tools. The single biggest
+      determinant of whether code-mode actually wins on a task.
+    </p>
+    <p>
+      <strong>L1 (if you start using it).</strong> The only layer present every
+      turn unconditionally. Cheapest place to install a single sentence the
+      model needs to never forget.
+    </p>
+    <p>
+      <strong>L5 — result shape.</strong> Surprisingly outsized effect because
+      the model reads it every successful call. Tweak the wording of
+      <code>tabs_context_mcp</code> and you change how the model thinks about
+      tabs.
+    </p>
+  </div>
+
+  <footer>
+    ocic · guidance layers <span class="sep">·</span> may 25 2026 <span class="sep">·</span> codemode @ dcc8cc7 <span class="sep">·</span> noemica
+  </footer>
+
+</div>
+</body>
+</html>

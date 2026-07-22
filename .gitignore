@@ -1,0 +1,17 @@
+node_modules/
+host/native-host-wrapper.sh
+.env
+*.log
+.DS_Store
+.wrangler/
+
+# signing key + packaged build (never commit the key)
+extension.pem
+extension.crx
+
+# benchmark research data (486MB base64 trajectories, frames, logs) — not extension code
+benchmark/data/
+benchmark/environments/
+benchmark/logs/
+benchmark/throttle_evidence/
+benchmark/__pycache__/

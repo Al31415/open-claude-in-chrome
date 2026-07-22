@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benchmark Execution Plan · Production Pipeline</title>
+<style>
+  :root{
+    --bg:#f4f6f8; --panel:#ffffff; --panel2:#f9fafb; --ink:#1a2230; --muted:#586274; --faint:#8b95a5;
+    --line:#e3e7ec; --line2:#eef1f4;
+    --orch:#5b6576; --agent:#2f6fd0; --code:#1f9d6b;
+    --gen:#3f8f4f; --p1:#0e8aa8; --p2:#7c5cd4; --p3:#cf7a24; --p4:#b53c8f;
+    --warn:#c9531f;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Inter,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0f1216; --panel:#161a20; --panel2:#12161b; --ink:#e7eaef; --muted:#9aa3b2; --faint:#5c6675;
+      --line:#252b34; --line2:#1c222a;
+      --orch:#8b95a5; --agent:#5b9bf0; --code:#3fbf8f;
+      --gen:#5fbf72; --p1:#3bb6d1; --p2:#a98bec; --p3:#e0a24a; --p4:#e07ac6; --warn:#e0895a;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.55 var(--sans);-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1160px;margin:0 auto;padding:34px 26px 90px}
+  h1{font-size:23px;letter-spacing:-.01em;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13.5px;margin:0 0 8px;max-width:86ch}
+  .eyebrow{font:600 11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--faint)}
+  h2{font-size:16px;margin:0}
+  section{margin:38px 0 0}
+  .sechead{display:flex;align-items:center;gap:11px;margin:0 0 14px;padding-bottom:9px;border-bottom:1px solid var(--line)}
+  .pnum{font:700 12px var(--mono);color:#fff;background:var(--accent,var(--orch));border-radius:6px;padding:3px 8px;letter-spacing:.02em}
+  .secsub{color:var(--muted);font-size:12.5px;margin-left:auto;text-align:right}
+  code{font-family:var(--mono);font-size:.9em;background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  p{margin:8px 0}
+  .legend{display:flex;flex-wrap:wrap;gap:14px;margin:0 0 14px;font-size:12.5px;color:var(--muted)}
+  .legend .k{display:inline-flex;align-items:center;gap:7px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  /* model banner */
+  .modelbar{display:flex;gap:10px;align-items:center;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--agent);border-radius:10px;padding:10px 14px;margin:14px 0 0;font-size:13px}
+  .modelbar .m{font-family:var(--mono);font-size:12px;color:var(--agent)}
+  /* flow of steps */
+  .flow{display:flex;gap:0;overflow-x:auto;padding:4px 2px 8px;align-items:stretch}
+  .step{flex:0 0 200px;background:var(--panel);border:1px solid var(--line);border-top:3px solid var(--role,var(--orch));border-radius:10px;padding:11px 13px;position:relative}
+  .step.agent{--role:var(--agent);flex-basis:230px;background:linear-gradient(0deg,var(--panel),color-mix(in srgb,var(--agent) 5%,var(--panel)))}
+  .step .n{font:700 10px var(--mono);color:var(--role,var(--orch));letter-spacing:.08em}
+  .step h4{margin:3px 0 5px;font-size:13.5px}
+  .step p{margin:0;font-size:11.5px;color:var(--muted);line-height:1.45}
+  .step .who{position:absolute;top:9px;right:11px;font:9px var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--faint)}
+  .arr{flex:0 0 26px;display:flex;align-items:center;justify-content:center;color:var(--faint);font-size:18px}
+  pre{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--agent);border-radius:8px;padding:11px 13px;overflow-x:auto;font:12px/1.5 var(--mono);margin:12px 0}
+  pre .fl{color:var(--code)} pre .c{color:var(--faint)}
+  .cmds{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:760px){.cmds{grid-template-columns:1fr}}
+  /* prompt anatomy */
+  .anatomy{display:grid;grid-template-columns:1.1fr 1fr;gap:16px}
+  @media(max-width:860px){.anatomy{grid-template-columns:1fr}}
+  .promptstack{border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .pblock{padding:11px 14px;font-size:12.5px}
+  .pblock .t{font:700 10px var(--mono);letter-spacing:.07em;text-transform:uppercase;margin-bottom:4px}
+  .pblock.hdr{background:color-mix(in srgb,var(--agent) 7%,var(--panel));border-bottom:1px dashed var(--line)}
+  .pblock.hdr .t{color:var(--agent)}
+  .pblock.tsk{background:color-mix(in srgb,var(--gen) 7%,var(--panel))}
+  .pblock.tsk .t{color:var(--gen)}
+  .pblock ul{margin:4px 0 0;padding-left:17px}
+  .pblock li{font-size:12px;color:var(--muted);margin:3px 0}
+  table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12.5px}
+  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.04em;color:var(--faint)}
+  td.mono,.m{font-family:var(--mono);font-size:11.5px}
+  .pill{font:10px var(--mono);padding:1px 6px;border-radius:4px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .pill.on{color:var(--code);border-color:color-mix(in srgb,var(--code) 45%,var(--line))}
+  .pill.off{color:var(--faint)}
+  .pill.ban{color:var(--warn);border-color:color-mix(in srgb,var(--warn) 45%,var(--line))}
+  /* isolation */
+  .iso{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.iso{grid-template-columns:1fr}}
+  .layer{border:1px solid var(--line);border-radius:11px;padding:14px 15px;background:var(--panel)}
+  .layer h4{margin:0 0 4px;font-size:13px;display:flex;align-items:center;gap:8px}
+  .layer .tag{font:10px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:#fff;border-radius:5px;padding:2px 6px}
+  .ephem{border:2px dashed var(--p2);border-radius:10px;padding:12px;margin-top:10px;position:relative;background:color-mix(in srgb,var(--p2) 5%,transparent)}
+  .ephem::before{content:"ephemeral · per rollout";position:absolute;top:-9px;left:12px;background:var(--bg);padding:0 7px;font:10px var(--mono);color:var(--p2);letter-spacing:.03em}
+  .inner{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:9px 11px;font-size:12px}
+  .chip{display:inline-block;font:11px var(--mono);background:var(--panel2);border:1px solid var(--line);border-radius:5px;padding:2px 7px;margin:3px 4px 0 0;color:var(--muted)}
+  /* lanes */
+  .lanes{display:grid;gap:11px}
+  .lane{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:var(--panel2)}
+  .lane .lh{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:600;margin-bottom:9px}
+  .lane .lh .b{font:10px var(--mono);text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:5px;color:#fff}
+  .queue{display:flex;gap:5px;flex-wrap:wrap}
+  .rk{width:22px;height:22px;border-radius:5px;background:var(--panel);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font:9px var(--mono);color:var(--muted)}
+  .rk.reset{border-style:dashed;color:var(--faint)}
+  .rk.hard{border-color:var(--warn);color:var(--warn);font-weight:700}
+  .parallel-note{text-align:center;font:11px var(--mono);color:var(--faint);margin:2px 0}
+  /* generation pipeline */
+  .genrow{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  @media(max-width:860px){.genrow{grid-template-columns:1fr}}
+  .genbox{border:1px solid var(--line);border-top:3px solid var(--gen);border-radius:10px;background:var(--panel);padding:13px 14px}
+  .genbox h4{margin:0 0 5px;font-size:13px}
+  .genbox .who{font:10px var(--mono);text-transform:uppercase;letter-spacing:.05em;color:var(--faint)}
+  .genbox p{font-size:12px;color:var(--muted);margin:5px 0 0}
+  .timed{display:inline-block;font:10px var(--mono);color:var(--gen);border:1px solid color-mix(in srgb,var(--gen) 45%,var(--line));border-radius:4px;padding:1px 6px;margin-top:7px}
+  /* variants */
+  .variants{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:820px){.variants{grid-template-columns:1fr}}
+  .variant{border:1px solid var(--line);border-radius:10px;padding:13px;background:var(--panel);border-top:3px solid var(--p3)}
+  .variant h4{margin:0 0 6px;font-size:13px}
+  .variant .big{font:11px var(--mono);color:var(--faint);text-transform:uppercase;letter-spacing:.05em}
+  /* timeline */
+  .tl{display:flex;height:34px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 6px;font:11px var(--mono)}
+  .tl .seg{display:flex;align-items:center;justify-content:center;color:#fff;white-space:nowrap;padding:0 6px;overflow:hidden}
+  .ticks{display:flex;justify-content:space-between;font:10px var(--mono);color:var(--faint);margin-top:2px}
+  .callout{border-left:3px solid var(--warn);background:var(--panel2);border-radius:6px;padding:9px 13px;margin:12px 0;font-size:12.5px;color:var(--muted)}
+  .callout b{color:var(--ink)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+  ul{margin:6px 0;padding-left:20px} li{margin:4px 0;font-size:13px}
+  footer{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-size:12px;color:var(--faint);line-height:1.75}
+  .val{color:var(--warn);font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">OCIC Benchmark · Production Execution Plan · v3</div>
+  <h1>Running the experiment: one unit, a generation stage, four phases</h1>
+  <p class="sub">Open Claude in Chrome vs Claude in Chrome, then pre-training (experiential vs expert), then execute_code on the expert arm, then <b>continuation</b>: test rollouts that fork a checkpointed session which already holds the experience in its context window. Every rollout is a detached <code>claude</code> process; the orchestrator (<code>runner.py</code>) owns setup, teardown, and grading around it. <b>Latency is the headline metric, and everything is timed.</b> Scoring is retroactive from artifacts.</p>
+
+  <div class="legend">
+    <span class="k"><span class="dot" style="background:var(--orch)"></span> orchestrator (<code>runner.py</code>)</span>
+    <span class="k"><span class="dot" style="background:var(--agent)"></span> agent (detached <code>claude</code>)</span>
+    <span class="k"><span class="dot" style="background:var(--gen)"></span> generation</span>
+    <span class="k"><span class="dot" style="background:var(--p1)"></span> phase 1</span>
+    <span class="k"><span class="dot" style="background:var(--p2)"></span> phase 2</span>
+    <span class="k"><span class="dot" style="background:var(--p3)"></span> phase 3</span>
+    <span class="k"><span class="dot" style="background:var(--p4)"></span> phase 4</span>
+  </div>
+
+  <div class="modelbar">
+    <span class="pill on">MODEL</span>
+    <span>Every experiment, every rollout: <b>Sonnet, medium thinking</b>. One tracked exception: the phase-4 expert <b>study</b> session runs Sonnet at <b>max</b> effort (all its forks run medium)</span>
+    <span class="m" style="margin-left:auto">claude -p --model sonnet --effort medium --output-format json</span>
+  </div>
+
+  <!-- ========== THE UNIT ========== -->
+  <section>
+    <div class="sechead"><span class="pnum">UNIT</span><h2>The rollout: the same five stages in every phase</h2><span class="secsub">agent never sees /config or /finish · all four stage durations recorded, run is the headline</span></div>
+    <div class="card">
+      <div class="flow">
+        <div class="step"><span class="who">orch</span><div class="n">1 · SETUP <span style="color:var(--faint)">(timed)</span></div><h4>Reset the environment</h4><p>Navigate origin → <code>localStorage.clear()</code> → <code>/config?run_id&amp;task_id</code> → assert <code>/finish</code> diffs empty. Phase 2/3: also copy the frozen experience into a fresh ephemeral sandbox.</p></div>
+        <div class="arr">→</div>
+        <div class="step agent"><span class="who">agent</span><div class="n">2 · RUN <span style="color:var(--faint)">(headline)</span></div><h4>Detached <code>claude -p</code></h4><p>One process, never a subagent. Prompt = experiment header + task. Sonnet, medium thinking. Drives the browser MCP to completion.</p></div>
+        <div class="arr">→</div>
+        <div class="step"><span class="who">orch</span><div class="n">3 · GATE <span style="color:var(--faint)">(timed)</span></div><h4>Completed, honestly?</h4><p>Exit code, non-empty answer, minimum tool activity (lazy-stop check), throttle detection. A weak-prompt stall is a prompting bug to fix and re-run, not a task failure.</p></div>
+        <div class="arr">→</div>
+        <div class="step"><span class="who">orch</span><div class="n">4 · TEARDOWN <span style="color:var(--faint)">(timed)</span></div><h4>Capture ground truth</h4><p>Read <code>/finish</code> byte-exact → <code>finish.json</code>. Copy the <code>~/.claude</code> transcript verbatim → <code>trajectory.jsonl</code>. Count tool calls and execute_code calls. Destroy the sandbox (2/3).</p></div>
+        <div class="arr">→</div>
+        <div class="step"><span class="who">orch</span><div class="n">5 · EVALUATE <span style="color:var(--faint)">(timed)</span></div><h4>REAL grader</h4><p><code>WebCloneEvaluator</code>, exact code: jmespath deterministic; llm_boolean judged via claude (no OpenAI key on this machine).</p></div>
+      </div>
+      <div class="cmds">
+        <div>
+          <div class="m" style="color:var(--muted);margin-bottom:4px">OCIC rollout (gen + phases 1, 2, 3) · Brave</div>
+          <pre>claude -p "$HEADER + $TASK" \
+  <span class="fl">--model sonnet --effort medium</span> \
+  --output-format json --dangerously-skip-permissions
+  <span class="c"># phase 2/3: run cwd = ephemeral sandbox; experience mounted at ./experience/ (no --add-dir)</span></pre>
+        </div>
+        <div>
+          <div class="m" style="color:var(--muted);margin-bottom:4px">Official Claude-in-Chrome (EXP-1B only) · Chrome</div>
+          <pre>claude <span class="fl">--chrome</span> -p "$HEADER + $TASK" \
+  <span class="fl">--model sonnet --effort medium</span> \
+  --output-format json --dangerously-skip-permissions</pre>
+        </div>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin:6px 0 0">Artifacts per rollout, under <code>data/&lt;experiment&gt;/&lt;task&gt;_r1/</code>: <code>prompt.txt</code> · <code>result_raw.json</code> · <code>trajectory.jsonl</code> · <code>finish.json</code> · <code>evaluation.json</code> · <code>timing.json</code>. Authentic and unmodified; every metric is recomputable from them.</p>
+    </div>
+  </section>
+
+  <!-- ========== PROMPT ANATOMY ========== -->
+  <section>
+    <div class="sechead"><span class="pnum" style="background:var(--agent)">PROMPT</span><h2>Prompt anatomy: experiment header + task</h2><span class="secsub">the header is constant per experiment; the task changes per rollout</span></div>
+    <div class="anatomy">
+      <div class="promptstack">
+        <div class="pblock hdr">
+          <div class="t">Experiment header · fixed for the whole experiment</div>
+          Teaches the agent its environment and constraints:
+          <ul>
+            <li><b>Which MCP server</b> to drive (open-claude-in-chrome-hybrid vs official claude-in-chrome) and which tab is the workspace</li>
+            <li><b>Boundaries</b>: one tab, one app, never /config or /finish, no storage injection</li>
+            <li><b>execute_code clause</b>: forbidden (gen, phase 1, phase 2) or permitted (EXP-3A/3B)</li>
+            <li><b>Environment awareness</b> (phase 2/3): "your prior experience on these apps is at ./experience/ (traces + viewable frames); read README.md, reuse the flow that worked" + a filesystem-boundary rule (read only under this directory); 3B adds the compressed analysis</li>
+            <li>Run-to-completion discipline + "FINAL ANSWER:" convention for grading</li>
+          </ul>
+        </div>
+        <div class="pblock tsk">
+          <div class="t">Task · changes every rollout</div>
+          The verbatim goal from the REAL task JSON (e.g. "Book me a round-trip flight from Providence to Indianapolis…").
+        </div>
+      </div>
+      <div class="card" style="padding:12px 14px">
+        <table>
+          <tr><th>Experiment</th><th>MCP named in header</th><th>execute_code clause</th><th>Env awareness</th></tr>
+          <tr><td class="m">GEN-EXPERIENTIAL</td><td class="m">ocic-hybrid</td><td><span class="pill ban">forbidden</span></td><td>none</td></tr>
+          <tr><td class="m">EXP-1A</td><td class="m">ocic-hybrid</td><td><span class="pill ban">forbidden</span></td><td>none</td></tr>
+          <tr><td class="m">EXP-1B</td><td class="m">claude-in-chrome</td><td><span class="pill ban">forbidden</span></td><td>none</td></tr>
+          <tr><td class="m">EXP-2A</td><td class="m">ocic-hybrid</td><td><span class="pill ban">forbidden</span></td><td>own traces + frames</td></tr>
+          <tr><td class="m">EXP-2B</td><td class="m">ocic-hybrid</td><td><span class="pill ban">forbidden</span></td><td>expert recordings + frames</td></tr>
+          <tr><td class="m">EXP-3A</td><td class="m">ocic-hybrid</td><td><span class="pill on">permitted (naive)</span></td><td>expert recordings + frames</td></tr>
+          <tr><td class="m">EXP-3B</td><td class="m">ocic-hybrid</td><td><span class="pill on">permitted</span></td><td>expert recordings + analysis</td></tr>
+        </table>
+        <p style="font-size:11.5px;color:var(--faint);margin:4px 0 0">Every trajectory is audited: execute_code call count must be 0 where forbidden (a violation is flagged, not silently scored) and is a tracked metric where permitted.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== ISOLATION ========== -->
+  <section>
+    <div class="sechead"><span class="pnum">ISO</span><h2>Isolation: two independent layers</h2><span class="secsub">OCIC lives in Brave · official CinC lives in Chrome</span></div>
+    <div class="iso">
+      <div class="layer">
+        <h4><span class="tag" style="background:var(--orch)">browser state</span> reset, every rollout · every phase</h4>
+        <p style="font-size:12.5px;color:var(--muted)">REAL stores app state in <code>localStorage</code> keyed by app, not by run_id. So state is wiped and re-seeded before each rollout and <code>/finish</code> is asserted empty. Two same-app rollouts cannot share one browser profile concurrently.</p>
+        <div class="inner m">clear localStorage → /config → assert 0 diffs → hand tab to agent</div>
+      </div>
+      <div class="layer">
+        <h4><span class="tag" style="background:var(--p2)">filesystem</span> ephemeral sandbox · phase 2/3 only</h4>
+        <p style="font-size:12.5px;color:var(--muted)">The experience lives in a frozen master dir. Each rollout gets a throwaway copy <b>as the agent's cwd</b>, with the experience at <code>./experience/</code>, with no <code>--add-dir</code>, so the only directory in scope is the sandbox itself. A header boundary rule (read only under this directory) keeps it in; the disposable per-rollout copy keeps it from leaking across rollouts. Each rollout's trajectory is audited for filesystem escapes.</p>
+        <div class="ephem">
+          <div class="inner"><b class="m">$CWD/</b> <span class="chip">experience/ (frozen copy: traces + frames)</span> <span class="chip">3B: analysis.md</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="callout"><b>Concurrency is bounded by browser profiles, not the filesystem.</b> Phase 1 is parallel because its two systems live in different browsers (Brave vs Chrome). Phases 2 and 3 are OCIC-only, so their rollouts serialize on the one Brave profile; more profiles is the throughput lever if ever needed. Rollout workdirs live outside any git repo so no project context bleeds into the agent.</div>
+  </section>
+
+  <!-- ========== GENERATION ========== -->
+  <section style="--accent:var(--gen)">
+    <div class="sechead" style="border-color:color-mix(in srgb,var(--gen) 35%,var(--line))"><span class="pnum" style="background:var(--gen)">GEN</span><h2>Generation stage: all experience is produced before the phases run</h2><span class="secsub">train set only · every duration recorded</span></div>
+    <div class="genrow">
+      <div class="genbox">
+        <span class="who">agent · OCIC</span>
+        <h4>Experiential rollouts</h4>
+        <p>The <b>phase-1 pipeline exactly</b>, pointed at the 6 train tasks instead of the 12 test tasks. Same harness, same artifacts. Afterwards, the <b>traces only</b> (trajectory.jsonl) become the experiential environment; finish/evaluation stay out (ground-truth grading detail). One transform (<code>build_experiential_env.py</code>): these are traces extracted directly from a Claude Code session, with inline image bytes swapped for references to extracted frames (<code>[screenshot -> images/NNNN.jpg]</code>). Nothing else about the trace changes.</p>
+        <span class="timed">generation time = data</span>
+      </div>
+      <div class="genbox">
+        <span class="who">human · Sebastian</span>
+        <h4>Expert rollouts</h4>
+        <p>One expert demonstration per train task, recorded by the operator via the OCIC recorder. Stored as the expert environment: per-task <code>trace.json</code> (behavior / cursor / narration) + <code>SCHEMA_v0.md</code> + <code>images/</code> frames. Symmetric with the experiential arm (both carry viewable frames); the difference is the source of experience.</p>
+        <span class="timed">demo time = data</span>
+      </div>
+      <div class="genbox">
+        <span class="who">offline · once</span>
+        <h4>Analysis (for EXP-3B)</h4>
+        <p><b>Compression, not optimization.</b> A naive distillation of all expert rollouts into: site nuances, things to avoid, dead ends, key behaviors, underlying design decisions. Stabilizes long dense traces into a compact brief. Fancier variants (e.g. execute_code-driven analysis) deliberately deferred.</p>
+        <span class="timed">analysis time = data</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== PHASE 1 ========== -->
+  <section style="--accent:var(--p1)">
+    <div class="sechead" style="border-color:color-mix(in srgb,var(--p1) 35%,var(--line))"><span class="pnum" style="background:var(--p1)">PHASE 1</span><h2>Baselines: EXP-1A vs EXP-1B, cold</h2><span class="secsub">test set ×1 · execute_code forbidden · sides run in parallel</span></div>
+    <div class="card">
+      <p style="margin-top:0;font-size:13px;color:var(--muted)">Two cold agents on the same 12-task test set (3 easy + 5 medium + 4 hard, one rep each). Different browsers → fully parallel, zero shared state. Within a side, rollouts serialize with a reset between each.</p>
+      <div class="lanes">
+        <div class="lane">
+          <div class="lh"><span class="b" style="background:var(--agent)">EXP-1A · OCIC</span> Brave <span class="m" style="color:var(--faint);font-weight:400">· claude (no --chrome)</span></div>
+          <div class="queue"><span class="rk">1</span><span class="rk reset">↺</span><span class="rk hard">2</span><span class="rk reset">↺</span><span class="rk">…</span><span class="rk hard">4</span><span class="rk reset">↺</span><span class="rk">…</span><span class="rk hard">9</span><span class="rk reset">↺</span><span class="rk hard">10</span><span class="rk reset">↺</span><span class="rk">…</span><span class="rk">12</span></div>
+        </div>
+        <div class="parallel-note">▲ ∥ ▼ &nbsp; Brave vs Chrome → concurrent, no leakage possible</div>
+        <div class="lane">
+          <div class="lh"><span class="b" style="background:var(--p1)">EXP-1B · CinC</span> Chrome <span class="m" style="color:var(--faint);font-weight:400">· claude --chrome</span></div>
+          <div class="queue"><span class="rk">1</span><span class="rk reset">↺</span><span class="rk hard">2</span><span class="rk reset">↺</span><span class="rk">…</span><span class="rk hard">4</span><span class="rk reset">↺</span><span class="rk">…</span><span class="rk hard">9</span><span class="rk reset">↺</span><span class="rk hard">10</span><span class="rk reset">↺</span><span class="rk">…</span><span class="rk">12</span></div>
+        </div>
+      </div>
+      <p style="font-size:11.5px;color:var(--faint);margin:10px 0 0"><span class="rk reset" style="display:inline-flex;vertical-align:middle">↺</span> reset between rollouts · <span class="rk hard" style="display:inline-flex;vertical-align:middle">n</span> hard task (dashdish-10 #2, dashdish-7 #4, zilloft-9 #9, zilloft-10 #10 in the shuffled order).</p>
+    </div>
+  </section>
+
+  <!-- ========== PHASE 2 ========== -->
+  <section style="--accent:var(--p2)">
+    <div class="sechead" style="border-color:color-mix(in srgb,var(--p2) 35%,var(--line))"><span class="pnum" style="background:var(--p2)">PHASE 2</span><h2>Pre-training: EXP-2A experiential vs EXP-2B expert</h2><span class="secsub">OCIC only · execute_code forbidden · ephemeral sandbox per rollout</span></div>
+    <div class="card">
+      <p style="margin-top:0;font-size:13px;color:var(--muted)">Same unit, same test set; the only change is the environment: each rollout's sandbox carries the frozen experience at <code>./experience/</code>, and the header tells the agent it exists ("you have prior experience against similar apps in ./experience"). Both arms carry viewable frames, so the comparison isolates the <b>source</b> of experience, not its modality. How the agent uses it is up to the agent.</p>
+      <div class="grid2">
+        <div class="ephem"><div class="inner m"><b>EXP-2A</b> experiential env (6 own Claude-session traces + frames) → 12 rollouts <span class="pill ban">code forbidden</span></div></div>
+        <div class="ephem"><div class="inner m"><b>EXP-2B</b> expert env (6 operator recordings + frames) → 12 rollouts <span class="pill ban">code forbidden</span></div></div>
+      </div>
+      <p style="font-size:11.5px;color:var(--faint);margin:12px 0 0">Question: does either pre-training beat the phase-1 cold baseline on correctness and steps/latency, and which source of experience is worth more?</p>
+    </div>
+  </section>
+
+  <!-- ========== PHASE 3 ========== -->
+  <section style="--accent:var(--p3)">
+    <div class="sechead" style="border-color:color-mix(in srgb,var(--p3) 35%,var(--line))"><span class="pnum" style="background:var(--p3)">PHASE 3</span><h2>execute_code: two experiments on the expert arm</h2><span class="secsub">EXP-2B is the implicit control (its no-code condition already ran in phase 2)</span></div>
+    <div class="card">
+      <div class="variants">
+        <div class="variant"><div class="big">EXP-3A</div><h4>Naive execute_code</h4><p style="font-size:12px;color:var(--muted)">Expert env, header now permits execute_code ("feel free to use execute_code where it helps"). Tests whether the raw invitation changes behavior and latency. <b>Expect prompt iteration</b>: we inspect traces to confirm it actually uses execute_code before trusting the numbers.</p></div>
+        <div class="variant"><div class="big">EXP-3B</div><h4>execute_code + analysis</h4><p style="font-size:12px;color:var(--muted)">Same as 3A, plus the compressed analysis of the expert rollouts placed in the sandbox (site nuances, dead ends, pitfalls, key behaviors, design decisions). Tests whether amortized, compressed experience converts execute_code into a real win.</p></div>
+      </div>
+      <div class="callout" style="border-color:var(--code)"><b>Tracked metric: execute_code usage.</b> Per rollout in 3A/3B we count execute_code calls from the trajectory (and audit zero usage everywhere it is forbidden). Usage count sits next to steps and latency in the results.</div>
+    </div>
+  </section>
+
+  <!-- ========== PHASE 4 ========== -->
+  <section style="--accent:var(--p4)">
+    <div class="sechead" style="border-color:color-mix(in srgb,var(--p4) 35%,var(--line))"><span class="pnum" style="background:var(--p4)">PHASE 4</span><h2>Continuation: EXP-4A experiential-fork vs EXP-4B expert-fork</h2><span class="secsub">OCIC · Brave · execute_code never mentioned · every rollout forks one checkpointed session</span></div>
+    <div class="card">
+      <p style="margin-top:0;font-size:13px;color:var(--muted)"><b style="color:var(--ink)">The shift is in the delivery of experience, not the unit.</b> Phases 2/3 put the agent <i>inside a library</i>: knowledge sits on disk at <code>./experience/</code> and the header says "go read it." Phase 4 hands the task to a session that has <i>already been through it</i>: a one-time <b>study session</b> is checkpointed, and every test rollout is a <b>fork</b> of that checkpoint: the experience arrives pre-loaded in the context window, with the study's working directory restored on disk as a secondary channel. Same five-stage unit, same seeds, same grader, same jail; only the origin of the session differs. The two arms differ in how the checkpoint <i>acquired</i> its experience: <b>4A did the job before</b> (it performed the six train tasks); <b>4B read the library before</b> (it studied the six expert recordings).</p>
+
+      <div class="genrow" style="grid-template-columns:1fr 1fr">
+        <div class="genbox" style="border-top-color:var(--p4)">
+          <span class="who">study · once · agent (medium)</span>
+          <h4>EXP-4A study: one session performs all six train tasks</h4>
+          <p>The orchestrator drives the standard unit around a <b>persistent session</b>: per segment it opens a fresh tab, seeds <code>/config</code>, asserts a clean <code>/finish</code>, then <b>resumes the same session</b> (plain <code>--resume</code>, session id verified stable) with a next-task message. The agent is never told it is preparing for anything; it simply completes six tasks back-to-back in one conversation. Its workdir starts <b>empty</b>; each segment is captured and evaluated for the record but nothing is curated: the checkpoint keeps the failures too (this run: 3/6 segments passed). Experience is <b>episodic: actions taken, mistakes made, results seen</b>.</p>
+          <span class="timed">study time = data (37.0 min, 6 segments)</span>
+        </div>
+        <div class="genbox" style="border-top-color:var(--p4)">
+          <span class="who">study · once · agent (MAX effort)</span>
+          <h4>EXP-4B study: one session internalizes the expert recordings</h4>
+          <p>Same mounted material as EXP-2B (recordings + frames at <code>./experience/</code>), but the assignment is to <b>study, not solve</b>: work through every recording action-by-action alongside its frames, reconstruct <i>why</i> each move worked (real vs decorative controls, search/filter mechanics, form flows, gotchas), and cross-check until the apps' behavior is predictable, explicitly told a file summary is not the goal, internalization is. The <b>browser is deliberately never mentioned</b>; cross-checking against the live apps is left to its own discretion (any tabs it opens are counted and closed afterwards). Runs at <b>max effort</b>: depth is bought once and amortized across all twelve forks. Experience is <b>declarative: observed expertise, reconstructed into understanding</b>.</p>
+          <span class="timed">study time = data · browser use = data</span>
+        </div>
+      </div>
+
+      <div class="flow" style="margin-top:14px">
+        <div class="step" style="--role:var(--p4)"><span class="who">orch</span><div class="n">0 · CHECKPOINT</div><h4>Freeze the session</h4><p>Study ends → record <code>session_id</code>, copy the transcript, tar the workdir <b>as the study left it</b> (notes and all). A throwaway fork probe must recall both apps before any rollout spends budget.</p></div>
+        <div class="arr">→</div>
+        <div class="step" style="--role:var(--p4)"><span class="who">orch</span><div class="n">1 · RESTORE + SETUP</div><h4>Same path, fresh state</h4><p>Wipe and re-extract the snapshot at the study's <b>own absolute path</b> (forks only resolve from the session's project cwd; verified). Then the standard reset: fresh tab, <code>/config</code> seed, clean <code>/finish</code> assert.</p></div>
+        <div class="arr">→</div>
+        <div class="step agent"><span class="who">agent</span><div class="n">2 · FORK RUN <span style="color:var(--faint)">(headline)</span></div><h4><code>--resume SID --fork-session</code></h4><p>A NEW session that begins with the entire study conversation in context. Header keeps the full jail + FS rule + FINAL ANSWER; prior line says only "earlier in THIS session you …". No execute_code sentence exists.</p></div>
+        <div class="arr">→</div>
+        <div class="step"><span class="who">orch</span><div class="n">3-5 · UNCHANGED</div><h4>Gate · teardown · evaluate</h4><p>Identical to every other phase: exit/laziness gate, byte-exact <code>/finish</code>, trajectory copy, REAL grader. Forks never write back to the checkpoint; each rollout is independent by construction.</p></div>
+      </div>
+
+      <table style="margin-top:14px">
+        <tr><th>dimension</th><th>EXP-4A experiential-fork</th><th>EXP-4B expert-fork</th></tr>
+        <tr><td>study session's job</td><td><b>do</b> the 6 train tasks (never told it is training)</td><td><b>understand</b> the 6 expert recordings (told to internalize)</td></tr>
+        <tr><td>experience acquired by</td><td>acting: episodic memory of its own runs, failures included</td><td>observing: reconstructed understanding of someone else's runs</td></tr>
+        <tr><td>workdir at study start</td><td>empty scratch dir</td><td><code>./experience/</code> = recordings + frames (the EXP-2B mount)</td></tr>
+        <tr><td>browser during study</td><td>required and orchestrated (seeded tab per segment)</td><td>unmentioned; its own discretion; usage tracked</td></tr>
+        <tr><td>study effort</td><td>medium (it IS task execution; kept uniform)</td><td><b>max</b> (depth bought once, amortized; the one effort deviation)</td></tr>
+        <tr><td>checkpoint contains</td><td>lived transcript of 6 tasks + whatever it wrote to disk</td><td>study transcript + recordings + any self-authored notes</td></tr>
+        <tr><td>fork header prior line</td><td>"earlier in THIS SAME session you completed several similar tasks yourself"</td><td>"earlier in THIS SAME session you studied expert demonstrations … and internalized"</td></tr>
+        <tr><td>counterpart arms</td><td>2A (own traces mounted) · 3D (own analysis mounted)</td><td>2B (recordings mounted) · 3C (expert analysis mounted)</td></tr>
+      </table>
+
+      <div class="callout" style="border-color:var(--p4)"><b>What phase 4 actually asks.</b> Post-fix, mounted priors stopped moving the numbers (the healthy harness alone hits the ceiling; agents barely open <code>./experience/</code>). Phase 4 removes the compliance step entirely: the knowledge cannot be skipped, because it is already in context when the task arrives. If in-context experience ALSO fails to beat cold, the pre-training story is closed at this scale; if it wins, delivery, not source, was the bottleneck. Secondary contrast, same as every phase pair: does <i>doing</i> (4A) or <i>studying</i> (4B) transfer better?</div>
+
+      <div class="cmds">
+        <div>
+          <div class="m" style="color:var(--muted);margin-bottom:4px">Study, once per arm (checkpoint under data/phase4/)</div>
+          <pre>python3 runner.py p4study --arm experiential
+python3 runner.py p4study --arm expert <span class="fl">--effort max</span> --timeout 7200</pre>
+        </div>
+        <div>
+          <div class="m" style="color:var(--muted);margin-bottom:4px">Fork rollout (12 per arm; workdir = restored snapshot)</div>
+          <pre>claude -p "$P4_HEADER + $TASK" \
+  <span class="fl">--resume $STUDY_SID --fork-session</span> \
+  --model sonnet --effort medium --output-format json
+  <span class="c"># no execute_code clause in the header: available, unmentioned, usage audited</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== TIME ========== -->
+  <section>
+    <div class="sechead"><span class="pnum" style="background:var(--code)">TIME</span><h2>Latency: measured across the whole pipeline</h2><span class="secsub">the headline metric</span></div>
+    <div class="card">
+      <div class="tl">
+        <div class="seg" style="background:var(--gen);flex:2.6">GEN · experiential + expert + analysis (each timed)</div>
+        <div class="seg" style="background:var(--p1);flex:2">P1 rollouts</div>
+        <div class="seg" style="background:var(--p2);flex:2">P2 rollouts</div>
+        <div class="seg" style="background:var(--p3);flex:2">P3 rollouts</div>
+        <div class="seg" style="background:var(--code);flex:1.4">aggregate</div>
+      </div>
+      <div class="ticks"><span>t0 pipeline start</span><span>every rollout: setup / run / teardown / eval each timed · run is the headline</span><span>t_end</span></div>
+      <div class="grid2" style="margin-top:14px">
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">Per rollout → timing.json</div>
+          <ul>
+            <li>All four stage durations + rollout total</li>
+            <li><b>run duration</b> (agent wall-clock) = headline latency</li>
+            <li><b>steps</b> = tool calls · <b>execute_code calls</b> · turns · attempts</li>
+          </ul>
+        </div>
+        <div>
+          <div class="eyebrow" style="margin-bottom:6px">Per experiment / pipeline</div>
+          <ul>
+            <li>Generation durations (experiential compute, expert human, analysis)</li>
+            <li>Experiment wall-clock (summary.json) and pipeline start-to-finish</li>
+            <li>Everything re-scoreable retroactively from artifacts</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== LIMITS + OBSERVABILITY ========== -->
+  <section>
+    <div class="sechead"><span class="pnum" style="background:var(--warn)">LIMITS</span><h2>API usage limits and observability</h2><span class="secsub">Claude Max 20x · target ≤90% of any window</span></div>
+    <div class="grid2">
+      <div class="card">
+        <p style="margin-top:0;font-size:13px"><b>The budget</b> (researched 2026-07): Max 20x gives a 5-hour rolling window (~1,800 prompts after the 2026 doubling; window starts at the first prompt) plus weekly caps: one across all models and one Sonnet-only. Usage is shared with claude.ai and this orchestrating session.</p>
+        <ul>
+          <li><b>Rollouts run Sonnet</b>: protects the all-model weekly cap the orchestration session draws on.</li>
+          <li><b>Intra-experiment buffer</b>: fixed pause between rollouts (default 45 s, tunable).</li>
+          <li><b>Inter-phase buffer</b>: ~10 min between experiments.</li>
+          <li><b>Reactive throttle handling</b>: claude output is pattern-matched for limit messages; on a hit the runner parses the stated reset time (default 20 min), sleeps, and <b>re-queues the attempt. A throttled attempt is never scored.</b></li>
+          <li>Headroom policy: pause at the first throttle signal rather than probing the ceiling (the 90% rule).</li>
+        </ul>
+      </div>
+      <div class="card">
+        <p style="margin-top:0;font-size:13px"><b>Following along</b> without burning session tokens:</p>
+        <ul>
+          <li><code>tail -f benchmark/logs/&lt;experiment&gt;_&lt;ts&gt;.log</code>: one readable line per stage: setup ok, claude launched, run done in N min, eval PASS/FAIL, buffer.</li>
+          <li><code>data/&lt;experiment&gt;/status.json</code>: machine-readable progress (n done / total, outcomes).</li>
+          <li><code>data/&lt;experiment&gt;/summary.json</code>: end-of-experiment wall-clock + outcomes.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== MATRIX ========== -->
+  <section>
+    <div class="sechead"><span class="pnum">MATRIX</span><h2>All experiments</h2><span class="secsub">test set = 12 tasks × 1 rep = 12 rollouts / experiment</span></div>
+    <div class="card" style="overflow-x:auto">
+      <table>
+        <tr><th>Stage</th><th>Experiment</th><th>System · browser</th><th>Environment</th><th>execute_code</th><th>Set</th><th>Rollouts</th></tr>
+        <tr><td class="m" style="color:var(--gen)">GEN</td><td>GEN-EXPERIENTIAL</td><td>OCIC · Brave</td><td>none</td><td><span class="pill ban">forbidden</span></td><td class="m">train ×1</td><td class="m">6</td></tr>
+        <tr><td class="m" style="color:var(--gen)">GEN</td><td>GEN-EXPERT</td><td>human demos</td><td>n/a</td><td class="m">n/a</td><td class="m">train ×1</td><td class="m">6</td></tr>
+        <tr><td class="m" style="color:var(--gen)">GEN</td><td>GEN-ANALYSIS</td><td>offline compression</td><td>expert rollouts in</td><td class="m">n/a</td><td class="m">once</td><td class="m">1</td></tr>
+        <tr><td class="m p1">P1</td><td>EXP-1A cold</td><td>OCIC · Brave</td><td>none</td><td><span class="pill ban">forbidden</span></td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p1">P1</td><td>EXP-1B cold</td><td>official · Chrome <span class="m" style="color:var(--faint)">--chrome</span></td><td>none</td><td><span class="pill ban">forbidden</span></td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p2">P2</td><td>EXP-2A experiential</td><td>OCIC · Brave</td><td>own traces + frames</td><td><span class="pill ban">forbidden</span></td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p2">P2</td><td>EXP-2B expert</td><td>OCIC · Brave</td><td>expert recordings + frames</td><td><span class="pill ban">forbidden</span></td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p3">P3</td><td>EXP-3A naive code</td><td>OCIC · Brave</td><td>expert recordings + frames</td><td><span class="pill on">permitted</span> + usage tracked</td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p3">P3</td><td>EXP-3B code + analysis</td><td>OCIC · Brave</td><td>expert recordings + analysis</td><td><span class="pill on">permitted</span> + usage tracked</td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p4" style="color:var(--p4)">P4</td><td>STUDY-EXPERIENTIAL</td><td>OCIC · Brave</td><td>empty scratch dir; ONE session performs the 6 train tasks (plain --resume between segments)</td><td><span class="pill off">unmentioned</span></td><td class="m">train ×1 · 1 session</td><td class="m">6 seg</td></tr>
+        <tr><td class="m p4" style="color:var(--p4)">P4</td><td>STUDY-EXPERT</td><td>OCIC · Brave <span class="m" style="color:var(--faint)">browser at its discretion · MAX effort</span></td><td>expert recordings + frames (2B mount); internalization prompt</td><td><span class="pill off">unmentioned</span></td><td class="m">once</td><td class="m">1 session</td></tr>
+        <tr><td class="m p4" style="color:var(--p4)">P4</td><td>EXP-4A experiential-fork</td><td>OCIC · Brave</td><td>fork of STUDY-EXPERIENTIAL checkpoint (context + restored workdir)</td><td><span class="pill off">unmentioned</span> + usage tracked</td><td class="m">test ×1</td><td class="m">12</td></tr>
+        <tr><td class="m p4" style="color:var(--p4)">P4</td><td>EXP-4B expert-fork</td><td>OCIC · Brave</td><td>fork of STUDY-EXPERT checkpoint (context + restored workdir)</td><td><span class="pill off">unmentioned</span> + usage tracked</td><td class="m">test ×1</td><td class="m">12</td></tr>
+      </table>
+      <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);padding:8px 2px 0"><span>6 + 2 test experiments × 12</span><span><b style="color:var(--ink)">96 test rollouts</b> + 6 experiential + 6 expert demos + 1 analysis + 2 study sessions</span></div>
+      <p style="font-size:11.5px;color:var(--faint);margin:6px 0 0">Post-fix re-runs of the rows above (1A-fixed Chrome/Brave, 2A/2B-fixed, 3B-brave, 3C, 3D) are variants of the same design; the full census and results live in <code>benchmark_report.html</code>.</p>
+    </div>
+  </section>
+
+  <footer>
+    <b style="color:var(--muted)">Tracked decisions and caveats:</b><br>
+    <span class="val">1.</span> <b>Single rep.</b> Test tasks run ×1 (was ×2); compute constraint. Variance is not averaged out; treat per-task deltas cautiously.
+    <span class="val">2.</span> <b>Dataset v4 = dashdish × zilloft</b> (fly-unified dropped: intermittent Brave interstitial; networkin dropped earlier: zero hard tasks). dashdish 2e+5m+2h and zilloft 1e+6m+2h, 3 mediums each to train (seeds 716+717; zilloft pinned from v3). Every hard task held out for test; train = 6, test = 12.
+    <span class="val">3.</span> <b>LLM judge deviation.</b> REAL defaults to gpt-4o for llm_boolean; no OpenAI key on this machine, so the judge runs through claude (sonnet), recorded in each evaluation.json.
+    <span class="val">4.</span> <b>EXP-1B seed adapter.</b> The official extension has no spawnable server for orchestrator seeding in Chrome; adapter chosen at phase-1 time.
+    <span class="val">5.</span> <b>Sandbox = the agent's cwd.</b> Phase-2/3 experience is mounted at <code>./experience/</code> inside a disposable per-rollout working directory (no <code>--add-dir</code>; nothing else in scope). Confinement is a header boundary rule plus a per-rollout trajectory audit for filesystem escapes and off-app browser use. Experiential experience = Claude Code session traces with image bytes replaced by frame references (<code>build_experiential_env.py</code>); both arms keep viewable frames so the comparison isolates source, not modality.
+    <span class="val">6.</span> <b>Phase-3 control is EXP-2B</b>; the old standalone no-code batch was removed as redundant.
+    <span class="val">7.</span> <b>Phase-4 mechanics.</b> Forks only resolve from the study session's own project cwd (verified empirically: cross-cwd fork fails), so every rollout wipes and re-extracts the workdir snapshot at the study's absolute path before forking; independence comes from the immutable checkpoint plus per-rollout restore, not from separate directories. Plain <code>--resume</code> keeps one session id across the 4A study's six segments; <code>--fork-session</code> mints a new id per rollout and never mutates the parent. execute_code has a third posture here: not forbidden (P1/P2), not invited (P3), simply <b>unmentioned</b>: available and audited. The expert study runs at <b>max effort</b>, the single deviation from uniform medium (study only; every fork runs medium). The 4A checkpoint is uncurated: it carries its three failed train segments as-is: authentic experience, not a highlight reel. Forked trajectories embed the study transcript as a prefix; per-rollout metrics are sliced from the fork point (run start) so study turns are never double-counted.<br>
+    <span style="color:var(--faint)">Runner: <code>benchmark/runner.py</code> (preflight · run) · harness: <code>benchmark/harness.py</code> · dataset: <code>benchmark/tasks_manifest.json</code> + <code>dataset.html</code> · reference manual run: <code>data/tr-20260713-222233/</code>.</span>
+  </footer>
+
+</div>
+</body>
+</html>

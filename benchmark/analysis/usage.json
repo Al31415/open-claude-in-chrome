@@ -1,0 +1,65 @@
+{
+ "exp1a-fixed-brave": {
+  "cr": 24766174,
+  "cc": 636081,
+  "out": 54620,
+  "inp": 782,
+  "turns": 391
+ },
+ "exp2b-fixed-brave": {
+  "cr": 33927775,
+  "cc": 750010,
+  "out": 69154,
+  "inp": 968,
+  "turns": 484
+ },
+ "exp3c-analysis": {
+  "cr": 26416611,
+  "cc": 659367,
+  "out": 59906,
+  "inp": 856,
+  "turns": 435
+ },
+ "exp3d-experiential-analysis": {
+  "cr": 34988200,
+  "cc": 795211,
+  "out": 73832,
+  "inp": 902,
+  "turns": 453
+ },
+ "exp2a-fixed-brave": {
+  "cr": 28060080,
+  "cc": 720307,
+  "out": 59872,
+  "inp": 806,
+  "turns": 403
+ },
+ "exp4a-experiential-fork": {
+  "cr": 152648245,
+  "cc": 2546705,
+  "out": 51480,
+  "inp": 630,
+  "turns": 315
+ },
+ "exp4b-expert-fork": {
+  "cr": 108723982,
+  "cc": 3139321,
+  "out": 69500,
+  "inp": 804,
+  "turns": 402
+ },
+ "exp1b-cinc-rerun": {
+  "cr": 28758344,
+  "cc": 783019,
+  "out": 61601,
+  "inp": 888,
+  "turns": 444
+ },
+ "exp1b-cinc-parity": {
+  "cr": 23805868,
+  "cc": 744225,
+  "out": 54414,
+  "inp": 754,
+  "turns": 377
+ }
+}

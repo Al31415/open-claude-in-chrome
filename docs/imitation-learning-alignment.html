@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Imitation Learning for Browser Agents · OCIC alignment doc</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --panel-2: #f0f0ed;
+    --ink: #1c1e22; --muted: rgba(28,30,34,.64); --faint: rgba(28,30,34,.42);
+    --line: rgba(28,30,34,.15); --line-soft: rgba(28,30,34,.07);
+    --rec: #d23b2e; --rec-soft: rgba(210,59,46,.08);
+    --beh: #2a5fd8; --beh-rgb: 42,95,216; --beh-soft: rgba(42,95,216,.09);
+    --cog: #7a3fd1; --cog-soft: rgba(122,63,209,.09);
+    --ok: #0e8a5f; --ok-soft: rgba(14,138,95,.10);
+    --amber: #a5701a; --amber-soft: rgba(165,112,26,.10);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #15171b; --panel: #1c1f24; --panel-2: #22252b;
+      --ink: #e8eaee; --muted: rgba(232,234,238,.66); --faint: rgba(232,234,238,.44);
+      --line: rgba(232,234,238,.17); --line-soft: rgba(232,234,238,.08);
+      --rec: #e5604f; --rec-soft: rgba(229,96,79,.12);
+      --beh: #7fa3ff; --beh-rgb: 127,163,255; --beh-soft: rgba(127,163,255,.12);
+      --cog: #b18aeb; --cog-soft: rgba(177,138,235,.13);
+      --ok: #3fbf8f; --ok-soft: rgba(63,191,143,.13);
+      --amber: #d9a441; --amber-soft: rgba(217,164,65,.13);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171b; --panel: #1c1f24; --panel-2: #22252b;
+    --ink: #e8eaee; --muted: rgba(232,234,238,.66); --faint: rgba(232,234,238,.44);
+    --line: rgba(232,234,238,.17); --line-soft: rgba(232,234,238,.08);
+    --rec: #e5604f; --rec-soft: rgba(229,96,79,.12);
+    --beh: #7fa3ff; --beh-rgb: 127,163,255; --beh-soft: rgba(127,163,255,.12);
+    --cog: #b18aeb; --cog-soft: rgba(177,138,235,.13);
+    --ok: #3fbf8f; --ok-soft: rgba(63,191,143,.13);
+    --amber: #d9a441; --amber-soft: rgba(217,164,65,.13);
+  }
+  :root[data-theme="light"] {
+    --bg: #f7f7f5; --panel: #ffffff; --panel-2: #f0f0ed;
+    --ink: #1c1e22; --muted: rgba(28,30,34,.64); --faint: rgba(28,30,34,.42);
+    --line: rgba(28,30,34,.15); --line-soft: rgba(28,30,34,.07);
+    --rec: #d23b2e; --rec-soft: rgba(210,59,46,.08);
+    --beh: #2a5fd8; --beh-rgb: 42,95,216; --beh-soft: rgba(42,95,216,.09);
+    --cog: #7a3fd1; --cog-soft: rgba(122,63,209,.09);
+    --ok: #0e8a5f; --ok-soft: rgba(14,138,95,.10);
+    --amber: #a5701a; --amber-soft: rgba(165,112,26,.10);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:15px; line-height:1.6; }
+  .wrap { max-width: 900px; margin:0 auto; padding: 48px 28px 90px; }
+  a { color: var(--beh); text-decoration:none; border-bottom:1px dotted var(--beh); }
+  a:hover, a:focus-visible { border-bottom-style:solid; outline:none; }
+  code { font-family:var(--mono); font-size:.85em; background:var(--panel-2); border:1px solid var(--line-soft); border-radius:4px; padding:1px 5px; }
+  .eyebrow { font-family:var(--mono); font-size:11px; letter-spacing:.13em; text-transform:uppercase; color:var(--faint); margin-bottom:14px; }
+  .eyebrow .dot { color:var(--rec); }
+  h1 { font-size:33px; font-weight:750; letter-spacing:-.015em; line-height:1.14; margin:0 0 12px; text-wrap:balance; }
+  .lede { font-size:16px; color:var(--muted); max-width:66ch; margin:0 0 8px; }
+  h2 { font-size:20px; font-weight:700; margin:54px 0 4px; padding-bottom:8px; border-bottom:1px solid var(--line); display:flex; gap:10px; align-items:baseline; }
+  h2 .n { font-family:var(--mono); font-size:12px; color:var(--rec); font-weight:600; }
+  h3 { font-size:15px; font-weight:700; margin:24px 0 6px; }
+  p { max-width:74ch; margin:10px 0; }
+  ul,ol { max-width:74ch; padding-left:20px; margin:8px 0; }
+  li { margin:5px 0; }
+  .dim { color:var(--muted); } .small { font-size:13px; }
+  .tag { display:inline-block; font-family:var(--mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; padding:2px 7px; border-radius:999px; border:1px solid; margin-right:5px; white-space:nowrap; }
+  .tag.his { color:var(--ink); border-color:var(--line); background:var(--panel-2); }
+  .tag.mine { color:var(--rec); border-color:var(--rec); background:var(--rec-soft); }
+  .tag.open { color:var(--cog); border-color:var(--cog); background:var(--cog-soft); }
+  .tag.proven { color:var(--ok); border-color:var(--ok); background:var(--ok-soft); }
+  .tag.beh { color:var(--beh); border-color:var(--beh); background:var(--beh-soft); }
+  .tag.cog { color:var(--cog); border-color:var(--cog); background:var(--cog-soft); }
+  .tag.new { color:var(--amber); border-color:var(--amber); background:var(--amber-soft); }
+
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 18px; margin:14px 0; }
+  .card h4 { margin:0 0 6px; font-size:13.5px; font-weight:700; }
+  .card p, .card li { font-size:13.5px; }
+  .verdict { border-left:3px solid var(--ok); background:var(--ok-soft); border-radius:0 10px 10px 0; padding:12px 16px; margin:16px 0; }
+  .verdict b { color:var(--ok); }
+  .flag { border-left:3px solid var(--amber); background:var(--amber-soft); border-radius:0 10px 10px 0; padding:12px 16px; margin:16px 0; }
+  .flag b { color:var(--amber); }
+
+  .tbl { overflow-x:auto; margin:16px 0; border:1px solid var(--line); border-radius:10px; background:var(--panel); }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th { font-family:var(--mono); font-size:10.5px; letter-spacing:.07em; text-transform:uppercase; color:var(--faint); font-weight:500; text-align:left; padding:10px 13px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  td { padding:9px 13px; border-bottom:1px solid var(--line-soft); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  td.mono { font-family:var(--mono); font-size:12px; }
+  .n-good { color:var(--ok); font-weight:650; } .n-bad { color:var(--rec); font-weight:650; }
+
+  details { border:1px solid var(--line); border-radius:10px; background:var(--panel); margin:10px 0; }
+  details > summary { cursor:pointer; padding:11px 16px; font-weight:650; font-size:14px; list-style:none; display:flex; align-items:center; gap:8px; }
+  details > summary::before { content:"+"; font-family:var(--mono); color:var(--rec); font-weight:600; }
+  details[open] > summary::before { content:"–"; }
+  details > summary:focus-visible { outline:2px solid var(--beh); outline-offset:2px; border-radius:10px; }
+  details .body { padding:2px 16px 14px; border-top:1px solid var(--line-soft); }
+  details .body p, details .body li { font-size:13.5px; }
+
+  pre { background:var(--panel-2); border:1px solid var(--line-soft); border-radius:8px; padding:12px 14px; overflow-x:auto; font-family:var(--mono); font-size:12px; line-height:1.5; margin:12px 0; }
+  pre code { background:none; border:none; padding:0; }
+  pre .c { color:var(--faint); } pre .b { color:var(--beh); } pre .p { color:var(--cog); } pre .g { color:var(--ok); } pre .a { color:var(--amber); }
+
+  .seq-scroll { overflow-x:auto; margin:20px 0; }
+  .seq { min-width:820px; position:relative; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px 12px 20px; }
+  .seq-heads { display:grid; grid-template-columns:repeat(6,1fr); gap:6px; margin-bottom:6px; }
+  .seq-head { text-align:center; font-size:11.5px; font-weight:700; padding:7px 3px; border:1px solid var(--line); border-radius:8px; background:var(--panel-2); }
+  .seq-head .sub { display:block; font-family:var(--mono); font-size:9px; font-weight:400; color:var(--faint); margin-top:1px; }
+  .seq-lanes { position:relative; }
+  .seq-lanes::before { content:""; position:absolute; inset:0;
+    background-image:
+      linear-gradient(to right, transparent calc(8.33% - 1px), var(--line-soft) calc(8.33% - 1px), var(--line-soft) 8.33%, transparent 8.33%),
+      linear-gradient(to right, transparent calc(25% - 1px), var(--line-soft) calc(25% - 1px), var(--line-soft) 25%, transparent 25%),
+      linear-gradient(to right, transparent calc(41.66% - 1px), var(--line-soft) calc(41.66% - 1px), var(--line-soft) 41.66%, transparent 41.66%),
+      linear-gradient(to right, transparent calc(58.33% - 1px), var(--line-soft) calc(58.33% - 1px), var(--line-soft) 58.33%, transparent 58.33%),
+      linear-gradient(to right, transparent calc(75% - 1px), var(--line-soft) calc(75% - 1px), var(--line-soft) 75%, transparent 75%),
+      linear-gradient(to right, transparent calc(91.66% - 1px), var(--line-soft) calc(91.66% - 1px), var(--line-soft) 91.66%, transparent 91.66%);
+    pointer-events:none; }
+  .msg { position:relative; height:32px; }
+  .msg .arrow { position:absolute; top:16px; border-top:1.6px solid var(--ink); }
+  .msg.dashed .arrow { border-top-style:dashed; }
+  .msg .arrow::after { content:""; position:absolute; right:-1px; top:-4.5px; border:4px solid transparent; border-left:7px solid var(--ink); }
+  .msg.rtl .arrow::after { right:auto; left:-1px; border-left:none; border-right:7px solid var(--ink); }
+  .msg .lbl { position:absolute; top:-2px; font-family:var(--mono); font-size:10px; color:var(--muted); white-space:nowrap; }
+  .msg.self .arrow { border:1.6px solid var(--ink); border-left:none; border-radius:0 6px 6px 0; width:14px !important; height:11px; top:13px; }
+  .msg.self .arrow::after { right:auto; left:-1px; top:auto; bottom:-4.5px; border:4px solid transparent; border-right:7px solid var(--ink); }
+  .seq-box { position:relative; border:1.5px dashed var(--rec); border-radius:8px; margin:4px 1%; padding:22px 0 4px; background:var(--rec-soft); }
+  .seq-box .box-lbl { position:absolute; top:4px; left:10px; font-family:var(--mono); font-size:10px; letter-spacing:.05em; text-transform:uppercase; color:var(--rec); font-weight:600; }
+  .seq-note { font-family:var(--mono); font-size:10.5px; color:var(--faint); text-align:center; margin-top:6px; }
+
+  .ladder { display:flex; flex-direction:column; gap:2px; margin:16px 0; }
+  .rung { display:grid; grid-template-columns:120px 1fr; gap:14px; align-items:center; padding:11px 16px; border:1px solid var(--line); background:var(--panel); }
+  .rung:first-child { border-radius:10px 10px 0 0; } .rung:last-child { border-radius:0 0 10px 10px; }
+  .rung .lvl { font-family:var(--mono); font-size:12px; font-weight:700; }
+  .rung .pct { font-size:11px; color:var(--faint); font-family:var(--mono); }
+  .rung.t100 { border-left:4px solid var(--ok); } .rung.t100 .lvl { color:var(--ok); }
+  .rung.t90 { border-left:4px solid var(--beh); } .rung.t90 .lvl { color:var(--beh); }
+  .rung.tnet { border-left:4px solid var(--amber); } .rung.tnet .lvl { color:var(--amber); }
+  .rung .d { font-size:13px; }
+
+  footer { margin-top:70px; padding-top:14px; border-top:1px solid var(--line); font-family:var(--mono); font-size:11px; color:var(--faint); line-height:1.9; }
+  @media (max-width:660px){ .wrap{padding:32px 16px 64px;} h1{font-size:26px;} .rung{grid-template-columns:1fr;gap:4px;} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow"><span class="dot">●</span> open-claude-in-chrome · alignment document · draft 3 · 2026-07-08</div>
+  <h1>Imitation learning for browser agents</h1>
+  <p class="lede">Record an expert doing a browser task in two synchronized tracks, what they did and why, across every tab, with reliability guarantees. Hand the trace to a live Claude Code session with zero juggling. Claude learns the task from one rollout and carries out a sister task on its own.</p>
+  <p class="small dim">Legend: <span class="tag his">SEB</span> your instruction &nbsp;<span class="tag mine">MY CALL</span> a decision you delegated &nbsp;<span class="tag proven">TESTED</span> resolved by an experiment (§13) &nbsp;<span class="tag new">RESEARCH</span> from the rrweb / session-replay study &nbsp;<span class="tag open">OPEN</span> needs you.</p>
+
+  <div class="verdict"><b>Draft 3:</b> everything you dictated is folded in and the two uncertain systems (transcription, transport) plus two new ones (HTML-capture cost, channel-connection feedback) are resolved by live experiments. One insight reshaped the architecture: the offscreen document that holds the mic is also the durable buffer that makes long recordings survivable, because the MV3 service worker cannot. Details in §5 and §13.</p>
+
+  <h2><span class="n">1</span>The flow, end to end</h2>
+  <p>One cross-tab recording session, from priming Claude Code to it acting on the trace.</p>
+  <div class="seq-scroll"><div class="seq">
+    <div class="seq-heads">
+      <div class="seq-head">Operator<span class="sub">you + mic</span></div>
+      <div class="seq-head">Content scripts<span class="sub">every tab/frame</span></div>
+      <div class="seq-head">Service worker<span class="sub">router</span></div>
+      <div class="seq-head">Offscreen doc<span class="sub">durable buffer</span></div>
+      <div class="seq-head">MCP server<span class="sub">channel</span></div>
+      <div class="seq-head">Claude Code<span class="sub">live session</span></div>
+    </div>
+    <div class="seq-lanes">
+      <div class="msg dashed"><span class="arrow" style="left:8.33%; width:83.33%;"></span><span class="lbl" style="left:22%;">"I'll teach you something. Wait for my signal."</span></div>
+      <div class="msg"><span class="arrow" style="left:8.33%; width:16.66%;"></span><span class="lbl" style="left:9%;">click icon → start (validate API key first)</span></div>
+      <div class="seq-box">
+        <span class="box-lbl">recording · event-driven, across all tabs, loops until stop</span>
+        <div class="msg"><span class="arrow" style="left:8.33%; width:16.66%;"></span><span class="lbl" style="left:9%;">act + narrate: resolve semantic anchor, capture pre/post effect</span></div>
+        <div class="msg"><span class="arrow" style="left:25%; width:16.66%;"></span><span class="lbl" style="left:26%;">epoch-stamped events (tab/frame namespaced)</span></div>
+        <div class="msg"><span class="arrow" style="left:41.66%; width:16.66%;"></span><span class="lbl" style="left:42%;">append event + audio chunk to disk</span></div>
+        <div class="msg self"><span class="arrow" style="left:58.33%;"></span><span class="lbl" style="left:60%;">IndexedDB (survives SW death)</span></div>
+      </div>
+      <div class="msg"><span class="arrow" style="left:8.33%; width:16.66%;"></span><span class="lbl" style="left:9%;">click icon → stop</span></div>
+      <div class="msg"><span class="arrow" style="left:58.33%; width:16.66%;"></span><span class="lbl" style="left:56%;">transcribe (1 call) · merge two tracks · write bundle</span></div>
+      <div class="msg"><span class="arrow" style="left:41.66%; width:33.33%;"></span><span class="lbl" style="left:44%;">recording_complete (→ native host → TCP)</span></div>
+      <div class="msg"><span class="arrow" style="left:75%; width:16.66%;"></span><span class="lbl" style="left:73%;">channel notify: summary + path + schema v0</span></div>
+      <div class="msg rtl"><span class="arrow" style="left:58.33%; width:33.33%;"></span><span class="lbl" style="left:64%;">reads bundle · acks</span></div>
+      <div class="msg self"><span class="arrow" style="left:91.66%;"></span><span class="lbl" style="left:70%; text-align:right;">analyze rollout → execute sister task</span></div>
+    </div>
+    <div class="seq-note">Bundle is written to disk BEFORE any notification (§4). If no channel is connected, the recording is still saved and the extension says so (§4).</div>
+  </div></div>
+  <p><span class="tag his">SEB</span> Two v1 priorities, in order: <b>(1) data collection done right</b>, then <b>(2) start/stop → Claude Code with no juggling</b>. And the recording must <b>persist across tabs</b>.</p>
+
+  <h2><span class="n">2</span>Two tracks, never one merged sequence <span class="tag his" style="font-size:11px;">SEB CORRECTION</span></h2>
+  <p>Draft 2 rendered the demo as a single merge-sorted sequence. <span class="tag his">SEB</span> caught it: behavior and speech <b>overlap heavily</b> (you talk <i>while</i> you act), so collapsing them into one ordered list loses information. The model is <b>two parallel arrays sharing one epoch clock</b>, rendered as two lanes, never flattened.</p>
+<pre><code><span class="c">// trace.json — two tracks, one clock. NOT one merged array.</span>
+{
+  "started_at": 1751990400000,           <span class="c">// epoch ms; the shared zero</span>
+  "behavior": [                          <span class="b">// Track A — can overlap Track B freely</span>
+    { "t": 900,  "tab": 3, "frame": 0, "action": "mouse_move", ... },
+    { "t": 2100, "tab": 3, "frame": 0, "action": "left_click", "anchor": {...}, "effect": {...} }
+  ],
+  "cognitive": [                         <span class="p">// Track B — independent timeline</span>
+    { "t": 0,    "end": 2840, "text": "Okay, I'm clicking the New Project button now." },
+    { "t": 3160, "end": 4800, "text": "I'm doing this because we always start from the Projects tab." }
+  ]
+}</code></pre>
+  <p class="small dim">Overlap is the norm: at t=2100 you click while the t=0–2840 utterance is still playing. A merged list would have to pick an order; two tracks keep the truth. A viewer aligns them on the clock; the agent reads both.</p>
+
+  <h2><span class="n">3</span>Reliability: the guarantee ladder <span class="tag his" style="font-size:11px;">SEB</span></h2>
+  <p><span class="tag his">SEB</span> A lost recording is a disaster. Different parts get different guarantees; state them honestly and design to them.</p>
+  <div class="ladder">
+    <div class="rung t100"><div><span class="lvl">Behavior</span><br><span class="pct">100% · local only</span></div><div class="d">Events stream to IndexedDB as they happen, in the offscreen doc. No network dependency. Survives service-worker death and browser crash up to the last flushed event.</div></div>
+    <div class="rung t90"><div><span class="lvl">Audio (.webm)</span><br><span class="pct">~90% · local only</span></div><div class="d"><code>MediaRecorder</code> with a timeslice writes an audio chunk to disk every few seconds. Crash at minute 9 → minutes 0–8.5 are on disk. The ~10% at risk is only the final un-flushed slice.</div></div>
+    <div class="rung tnet"><div><span class="lvl">Transcript</span><br><span class="pct">reliable · needs internet</span></div><div class="d">Produced at stop-time from the saved audio via OpenAI (§5). If offline or the API fails, the <code>.webm</code> is still saved and transcription is retried later. Never blocks the bundle.</div></div>
+  </div>
+  <p><span class="tag his">SEB</span> After you stop, the extension tells you the <b>state of the recording</b> and <b>whether Claude was notified</b>. That feedback is §4. The ordering rule: <b>persist to disk first, transcribe second, notify third</b> — each stage independent, a later failure never destroys an earlier guarantee.</p>
+
+  <h2><span class="n">4</span>Transport + connection feedback <span class="tag proven" style="font-size:11px;">RESOLVED</span></h2>
+  <div class="verdict"><b>Decided:</b> the OCIC MCP server becomes a two-way <b>channel</b>. On stop it fires <code>recording_complete</code>, which auto-injects into the live Claude Code session (§13-B). The extension shows one of <b>three connection states</b> after you stop, because the server <i>cannot</i> passively know if a channel is live (§13-A) — so we confirm with an ack.</div>
+
+  <p>The cheap part: OCIC's MCP server is already a stdio subprocess Claude Code spawns, which is exactly what a channel is. Three changes: declare <code>experimental:{'claude/channel':{}}</code> in <code>server-hybrid.js</code>; fire <code>server.notification()</code> when <code>recording_complete</code> arrives upstream; add that upstream message type on the existing extension→native-host→TCP path.</p>
+
+  <h3>Why three states, and how we know which</h3>
+  <p><span class="tag proven">TESTED §13-A</span> Claude Code advertises <b>identical MCP capabilities</b> whether or not it was launched as a channel, so the server can't detect channel-mode from the handshake. <span class="tag proven">TESTED §13-B</span> But a two-way ack works: the server's instructions tell Claude to call <code>recording_ack</code> on receipt, and the ack round-trips. Combining the ack with OCIC's existing native-host heartbeat gives three honest states:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>What the extension shows</th><th>How it knows</th></tr></thead>
+    <tbody>
+      <tr><td><b>Saved. No Claude Code session connected.</b></td><td>Native-host heartbeat is dead → no live session using OCIC at all.</td></tr>
+      <tr><td><b>Saved. Sent to Claude, delivery not confirmed.</b><br><span class="small dim">(channel likely not enabled)</span></td><td>Heartbeat alive, notification fired, but no <code>recording_ack</code> within ~12s.</td></tr>
+      <tr><td><b>Saved and delivered to Claude Code.</b></td><td><code>recording_ack</code> round-tripped with the recording id.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small dim">All three come <i>after</i> the bundle is on disk. The recording is never contingent on the channel; the channel is a delivery convenience layered on a reliable local save. <span class="tag mine">MY CALL</span> reverse path (Claude→OCIC) stays deferred; the ack tool is the only two-way piece v1 needs.</p>
+
+  <h2><span class="n">5</span>Transcription, at the OCIC level <span class="tag proven" style="font-size:11px;">RESOLVED</span></h2>
+  <div class="verdict"><b>Decided:</b> mic in an MV3 <b>offscreen document</b> (<code>MediaRecorder</code>, webm/opus); a <b>valid OpenAI key is required before any recording starts</b>; at stop, one call to <code>whisper-1</code> transcribes the saved audio with word+segment timestamps; the transcript becomes Track B, assembled in parallel with Track A. All ran in §13-C/D.</div>
+  <div class="tbl"><table>
+    <thead><tr><th>Question</th><th>Answer</th><th>Basis</th></tr></thead>
+    <tbody>
+      <tr><td>Cloud or OCIC-level transcription?</td><td><b>OCIC level.</b> The key is supplied and validated up front, so we own the pipeline and it's not a server dependency.</td><td><span class="tag his">SEB</span></td></tr>
+      <tr><td>Does a 5–10 min recording need chunking for the API?</td><td><b>No.</b> 10 min of webm/opus ≈ 1.8MB, under OpenAI's 25MB cap → one call. (WAV would be 19.2MB — 10× bigger, still fits, but we persist opus.)</td><td>§13-C</td></tr>
+      <tr><td>Fine-grained enough to interleave?</td><td>Yes. <code>verbose_json</code> + <code>timestamp_granularities[]=word</code> returns per-word and per-segment spans; the segments become Track B utterances.</td><td>§13-D</td></tr>
+      <tr><td>Provider?</td><td><b>OpenAI for v1</b>, key from <b>extension settings</b> (not any <code>.env</code> — OCIC is multi-user, §9). <span class="tag open">Q3</span>: local-whisper privacy is a v2 swap, no interleave change.</td><td><span class="tag his">SEB</span> + §13-C</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small dim">Chunking is for <i>crash-survival persistence</i> (§3), not for the API. At stop the saved chunks concatenate into one file for a single transcription call.</p>
+
+  <h2><span class="n">6</span>What we capture per action <span class="tag proven" style="font-size:11px;">TESTED</span> <span class="tag new" style="font-size:11px;">RESEARCH</span></h2>
+  <p><span class="tag his">SEB</span> Know what component you're on when clicking/hovering/typing. Whole HTML or just the component? And how much, without oversaturating the model or the disk? Two inputs answer it.</p>
+  <div class="verdict"><b>Decided:</b> per action, store a <b>durable semantic anchor</b> (resolved selector + role + accessible name + visible text + key attributes) plus a <b>pre/post DOM-effect summary</b>. <b>Not</b> full HTML. Screenshots are a throttled visual aid, not per-action.</div>
+  <p><span class="tag proven">TESTED §13-E</span> The cost argument is decisive. On real 300KB DOMs:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Per-action capture strategy</th><th>Cost</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>Full document HTML</td><td class="mono n-bad">~75,000–87,000 tokens</td><td>One action blows the context window. No.</td></tr>
+      <tr><td>Cleaned HTML (strip script/style/svg)</td><td class="mono n-bad">~41,000–70,000 tokens</td><td>Still absurd. No.</td></tr>
+      <tr><td><b>Ancestor-path + element</b> (cleaned tags: id/class/role/aria/data-testid)</td><td class="mono n-good">~150–300 tokens</td><td><b>This.</b> Says exactly what and where.</td></tr>
+      <tr><td>Target element outerHTML alone</td><td class="mono">~30–50 tokens</td><td>Add the ancestor path for location context.</td></tr>
+    </tbody>
+  </table></div>
+  <p><span class="tag new">RESEARCH</span> The rrweb study refines the "what" and hands us the "effect":</p>
+  <ul>
+    <li><b>Anchors, not node ids.</b> Session-replay tools tag elements with ephemeral per-session integer ids that mean nothing to an agent later. We resolve each target to a <b>durable anchor at capture time</b> (selector + role + accessible name + text). OCIC's <code>content.js</code> already builds most of this descriptor.</li>
+    <li><b>The effect is the lesson.</b> The DOM mutations right after a click (the mini-cart appears, the filter applies) are the action→result signal an agent learns from. Capture a compact <b>pre/post effect summary</b> per action via a scoped <code>MutationObserver</code>, not a full snapshot.</li>
+    <li><b>Screenshots stay optional.</b> Session replay deliberately avoids per-frame images because the serialized DOM carries the state. We follow suit: rich cheap text per action, screenshots throttled as a visual aid keyed to steps. This directly answers your "don't overblow the model with a screenshot per action."</li>
+  </ul>
+  <p class="small dim"><span class="tag open">Q7</span> the exact screenshot cadence (every N seconds? on tab switch + major mutation? only when narrating?) is worth one experiment once the recorder exists; the default is "sparse, event-anchored."</p>
+
+  <h2><span class="n">7</span>Cross-tab capture architecture <span class="tag new" style="font-size:11px;">RESEARCH</span></h2>
+  <p><span class="tag his">SEB</span> The recording persists across tabs. <span class="tag new">RESEARCH</span> This is the one capability a page-embedded analytics script structurally cannot have, and an extension can. It's also net-new code we own. The obstacles and our answers:</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Obstacle</th><th>Our answer</th></tr></thead>
+    <tbody>
+      <tr><td><b>The MV3 service worker can't hold the buffer</b> — it dies after 30s idle, caps at 5 min, loses memory. A 10-min recording outlives it.</td><td><b>Buffer in the offscreen document</b> (persistent, has DOM + storage), the same one holding the mic. SW is a thin message router only. This is the architecture-shaping insight.</td></tr>
+      <tr><td><b>N independent capture contexts</b> — every tab/frame numbers its own DOM nodes from 1; they're unrelated.</td><td>Namespace every event by <code>(tabId, frameId)</code>. Resolve to durable anchors before events leave the content script, so downstream never sees the local ids.</td></tr>
+      <tr><td><b>No shared clock</b> — each frame's <code>performance.now()</code> has a different origin.</td><td>Stamp every event with <code>Date.now()</code> (epoch) at emit. That epoch is the trace's single clock (§2).</td></tr>
+      <tr><td><b>"Which tab is active" isn't in the DOM</b></td><td>The SW emits segmentation events from <code>chrome.tabs.onActivated</code> / <code>visibilitychange</code>: "left tab A, acted in tab B, returned." Tabs opened/closed mid-session splice in and out.</td></tr>
+      <tr><td><b>Cross-origin iframes</b> break page-embedded replay (postMessage bridge, lost events).</td><td>We win here: <code>all_frames:true</code> content scripts are <i>already inside</i> every frame, reporting straight to the SW. No bridge, no lost events.</td></tr>
+    </tbody>
+  </table></div>
+  <details>
+    <summary>Session-replay comparison: what we borrow vs leave (rrweb / PostHog)</summary>
+    <div class="body">
+      <p>rrweb (which powers PostHog, Sentry, Highlight) is a DOM-serialization + delta-log engine, not a video recorder: one keyframe snapshot of the serialized DOM plus a stream of typed mutation/input/mouse deltas. That's why 10-minute recordings stay small. We borrow the capture technique and leave the replay-for-humans shape.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Concern</th><th>Borrow</th><th>Leave / invert</th></tr></thead>
+        <tbody>
+          <tr><td>DOM capture</td><td>Serialize-to-JSON, input-value-as-attribute, MutationObserver deltas with added/moved/dropped dedup</td><td>—</td></tr>
+          <tr><td>Node identity</td><td>The concept of resolving an event's target</td><td>Ephemeral integer ids are useless downstream — resolve to durable selector+role+name at capture time</td></tr>
+          <tr><td>Volume control</td><td>Sampling (input:'last', scroll throttle, mouse-move off), deflate packing</td><td>PostHog's Kafka/S3/ClickHouse pipeline is overkill; we write IndexedDB → bundle</td></tr>
+          <tr><td>Masking</td><td>The selector/class + maskFn machinery</td><td><b>Invert the default to OFF</b> — masked text is exactly the training signal (§8)</td></tr>
+          <tr><td>Semantics</td><td>Serialized attributes give role/aria/name</td><td>Build the step-log IR (anchor + action + effect); rrweb has no notion of a "step"</td></tr>
+          <tr><td>Screenshots</td><td>Their instinct to avoid per-frame images</td><td>Keep them optional, keyed to steps</td></tr>
+        </tbody>
+      </table></div>
+      <p class="small dim"><span class="tag open">Q8</span> build-vs-fork: do we vendor a trimmed rrweb as the capture substrate, or write a lean purpose-built capturer (anchors + effect windows only)? Leaning purpose-built — we need ~40% of rrweb and want anchors it doesn't compute. Decide at implementation.</p>
+    </div>
+  </details>
+
+  <h2><span class="n">8</span>Mask / override mode <span class="tag his" style="font-size:11px;">SHIP IT</span> <span class="tag new" style="font-size:11px;">RESEARCH</span></h2>
+  <p><span class="tag his">SEB</span> Ship the pretend-action feature; call it <b>override mode</b> (or mask mode). Hold a modifier, "click" without the click firing, so you can demonstrate intent without side effects.</p>
+  <p><span class="tag mine">MY CALL</span> Modifier is <b>Alt/Option</b> (fn is invisible to the page; ctrl/shift collide with normal browsing). A capture-phase listener in <code>content.js</code> calls <code>preventDefault()</code>+<code>stopPropagation()</code> while held and tags the event <code>suppressed:true</code> in Track A. <span class="tag new">RESEARCH</span> reinforces why the schema must carry this flag from day one: session-replay's <code>userTriggeredOnInput</code> distinction is the same idea, and its <i>masking</i> default is the opposite of ours — <b>our capture is unmasked by default</b> because the labels and values are the training signal; override mode is the opt-in suppression, not the default.</p>
+
+  <h2><span class="n">9</span>Extension UX <span class="tag his" style="font-size:11px;">SEB</span></h2>
+  <ul>
+    <li><b>Icon = start/stop toggle.</b> Clicking the toolbar icon starts a recording; clicking again stops. This is non-negotiable and not traded for anything else. (Needs an <code>action</code> in the manifest; there is none today.)</li>
+    <li><b>Settings / sessions page</b> holds everything else: the <b>OpenAI API key</b> (required + validated before the first recording can start), and a <b>sessions viewer</b>.</li>
+    <li><b>Sessions viewer with progressive disclosure.</b> Primarily so you can verify we store the right thing. All data is visible, nothing hidden: start at session metadata, click deeper into the two tracks, deeper into per-action anchors and the HTML snippets. Overwhelming if flat, so it's disclosed in layers.</li>
+    <li><b>Multi-user.</b> OCIC is for other people, so no reliance on your machine. Key lives in extension storage, entered in settings.</li>
+  </ul>
+
+  <h2><span class="n">10</span>Cadence: event-driven <span class="tag his" style="font-size:11px;">SEB</span></h2>
+  <p><span class="tag his">SEB</span> Cadence is dictated by input, behavioral or cognitive. No input → nothing to record (the user may just be waiting; that's fine, it shows as a gap in the timeline). Lots of movement + talking → higher capture rate. <span class="tag new">RESEARCH</span> This is exactly rrweb's model: capture is triggered by events (mutations, interactions, input), throttled per type (mouse-move sampled, input coalesced to final value), never a fixed frame clock. A quiet stretch is simply an absence of events between two timestamps.</p>
+
+  <h2><span class="n">11</span>Bundle format + versioned schema <span class="tag his" style="font-size:11px;">SEB</span></h2>
+  <ul>
+    <li><b>JSON only. No TOON.</b> <span class="tag his">SEB</span> the token savings don't outweigh the complexity.</li>
+    <li><b>No <code>prompt.md</code>.</b> The prompt changes more often than the data structure. Instead, the notification carries <b>versioned schema metadata (v0)</b> describing how the contents work, how they relate, and what they cover. v0 is meant to be near-permanent.</li>
+    <li><b>The notification body is dead simple</b> — "a recording is here" — with the path. All the how-it-works lives in the versioned schema descriptor, not in prose that rots.</li>
+  </ul>
+<pre><code><span class="c">// the channel notification payload</span>
+{
+  "content": "Recording ready: 94s across 2 tabs on linear.app.",   <span class="c">// dead simple</span>
+  "meta": {
+    "event": "recording_complete",
+    "recording_id": "rec_a1b2c3",
+    "path": "~/.config/open-claude-in-chrome/recordings/2026-07-08T21-00-00",
+    "schema": "v0"                         <span class="a">// points to the frozen structure descriptor</span>
+  }
+}</code></pre>
+  <p class="small dim">Bundle on disk: <code>trace.json</code> (two tracks), <code>audio.webm</code>, <code>screenshots/</code>, <code>SCHEMA_v0.md</code> (the frozen descriptor), <code>meta.json</code>. Location: <code>~/.config/open-claude-in-chrome/recordings/&lt;ts&gt;/</code> <span class="tag his">SEB</span> confirmed good.</p>
+
+  <h2><span class="n">12</span>The implied complement: execute_code <span class="tag his" style="font-size:11px;">SEB · keep in mind</span></h2>
+  <p><span class="tag his">SEB</span> This is the complement to <code>execute_code</code>. The rollout provides everything needed to compose one robust <code>execute_code</code> call that runs the whole workflow: the anchors give durable selectors, the effect windows give the expected post-conditions to assert between steps, the narration gives the why. We learn the exact shape when we do the imitation learning, but the recorder should be built knowing its output feeds a single batched call, not just step-by-step replay.</p>
+
+  <h2><span class="n">13</span>Experiments</h2>
+  <h3>Run this session — all passed</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Experiment</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">A</td><td>Can the server detect channel-mode at MCP init?</td><td><b>No.</b> Identical client capabilities with/without the channel flag. Forced the three-state ack design (§4).</td></tr>
+      <tr><td class="mono">B</td><td>Does a <code>recording_complete</code> event reach a live session, and does an ack round-trip?</td><td><b>Yes.</b> Auto-injected (<code>← rectest:</code>), Claude read the path unprompted, and called <code>recording_ack</code> back with the id. Interactive only, not <code>-p</code>.</td></tr>
+      <tr><td class="mono">C</td><td>Long-audio sizing + chunk-stitch.</td><td>10 min opus ≈ 1.8MB, one API call. Chunk-stitch with time offset works if ever needed; chunking is for crash-survival, not the API.</td></tr>
+      <tr><td class="mono">D</td><td>Transcription with usable timestamps.</td><td>HTTP 200 in 6.7s for 9.4s audio; 29 words + 4 segments with start/end. Two-track merge on the shared clock verified.</td></tr>
+      <tr><td class="mono">E</td><td>HTML-capture cost on real DOMs.</td><td>Full 75–87k tokens vs ancestor-path+element ~150–300. Decided §6.</td></tr>
+    </tbody>
+  </table></div>
+  <h3>The one that matters most — still to run (needs the system + you)</h3>
+  <div class="card" style="border-left:3px solid var(--rec);">
+    <h4>E1 · The extrapolation test <span class="tag his">SEB: the biggest test</span></h4>
+    <p>Record <b>one</b> narrated expert rollout of a task on a site. Then give Claude Code a <b>sister task</b> — same shape, different specifics — and see if it extrapolates from the single rollout to complete it unaided. This is the real proof the trace teaches, not just replays. <span class="tag open">Q5</span>: which site, and what exactly is the sister-task pair?</p>
+  </div>
+
+  <h2><span class="n">14</span>Open questions <span class="small dim" style="font-weight:400;">(only what I can't decide alone)</span></h2>
+  <div class="tbl"><table>
+    <thead><tr><th>#</th><th>Question</th><th>Why it's yours</th></tr></thead>
+    <tbody>
+      <tr><td class="mono">Q5</td><td><b>E1 test definition.</b> Which site, and the rollout-task / sister-task pair for tomorrow?</td><td>Only you have it; it defines the acceptance test.</td></tr>
+      <tr><td class="mono">Q3</td><td><b>STT provider for v1.</b> OpenAI (proven, key via settings) is my default. Want local-whisper privacy from day one instead?</td><td>Privacy vs speed-to-ship, a product call.</td></tr>
+      <tr><td class="mono">Q7</td><td><b>Screenshot cadence.</b> Default is sparse/event-anchored. Any minimum you want guaranteed (e.g. one per tab switch)?</td><td>Taste on the visual-aid density.</td></tr>
+      <tr><td class="mono">Q8</td><td><b>Capture substrate.</b> Vendor a trimmed rrweb, or write a lean purpose-built capturer? Leaning purpose-built.</td><td>Architecture preference; happy to proceed on my lean default.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="small dim">None of these block starting the recorder. Q5 blocks running E1, which is your test to define. I'm proceeding to implement the decided architecture on the <code>imitation-learning</code> branch (§15).</p>
+
+  <h2><span class="n">15</span>Build plan on the <code>imitation-learning</code> branch</h2>
+  <ol>
+    <li><b>Manifest + skeleton</b>: add <code>offscreen</code> permission, an <code>action</code> (icon toggle), an options/settings page. <span class="tag proven">low risk</span></li>
+    <li><b>Trace schema v0</b>: freeze <code>SCHEMA_v0.md</code> + a shared JS module (two-track model, anchor shape, effect window, epoch clock, <code>suppressed</code> flag).</li>
+    <li><b>Offscreen buffer</b>: MediaRecorder (timeslice → IndexedDB) + the cross-tab event sink. The reliability backbone (§3).</li>
+    <li><b>Content-script capture</b>: resolve semantic anchors, scoped pre/post effect windows, override-mode interception, event-driven cadence.</li>
+    <li><b>SW router</b>: icon toggle, tab/focus segmentation, native-host <code>recording_complete</code> send.</li>
+    <li><b>Server channel</b>: capability + <code>server.notification()</code> + <code>recording_ack</code> tool on <code>server-hybrid.js</code>.</li>
+    <li><b>Stop pipeline</b>: concatenate audio → transcribe → merge two tracks → write bundle → notify → surface connection state.</li>
+    <li><b>Sessions viewer</b>: progressive-disclosure UI over stored bundles.</li>
+  </ol>
+  <p class="small dim">I'll implement and validate as far as I can without your machine, and stop where E1 (and live mic/extension testing) needs you.</p>
+
+  <h2><span class="n">16</span>References</h2>
+  <ul class="small">
+    <li><a href="https://code.claude.com/docs/en/channels-reference">Claude Code channels reference</a> · transport contract, validated §13-A/B</li>
+    <li><a href="https://platform.openai.com/docs/api-reference/audio/createTranscription">OpenAI audio transcription</a> · <code>verbose_json</code> + <code>timestamp_granularities</code>, §13-C/D</li>
+    <li><a href="https://developer.chrome.com/docs/extensions/reference/api/offscreen">chrome.offscreen</a> · MV3 mic + durable buffer (§5, §7)</li>
+    <li><a href="https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle">MV3 service-worker lifecycle</a> · the 30s/5min limits that force the offscreen buffer</li>
+    <li><a href="https://github.com/rrweb-io/rrweb/blob/master/docs/serialization.md">rrweb serialization</a> · <a href="https://github.com/rrweb-io/rrweb/blob/master/docs/observer.md">observers</a> · <a href="https://github.com/rrweb-io/rrweb/blob/master/docs/recipes/optimize-storage.md">storage optimization</a> · the capture substrate (§6, §7)</li>
+    <li><a href="https://posthog.com/docs/session-replay/privacy">PostHog masking</a> · the default we invert (§8)</li>
+    <li>OCIC integration points · <code>host/codemode/server-hybrid.js</code>, <code>host/tool-runtime.js</code>, <code>extension/content.js</code>, <code>extension/background.js</code>, <code>extension/manifest.json</code></li>
+  </ul>
+
+  <footer>
+    alignment doc · draft 3 · sources: Sebastian's dictation 2026-07-08 organized without additions; transcription, transport, HTML-capture, and channel-feedback resolved by live experiments (§13); rrweb/session-replay research folded into §6–8; decisions and open items marked in place · docs/imitation-learning-alignment.html
+  </footer>
+</div>
+</body>
+</html>
