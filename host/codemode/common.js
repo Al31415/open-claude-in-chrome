@@ -194,29 +194,48 @@ export async function startWorkerd({ variant } = {}) {
     os.tmpdir(),
     `oc-wrangler-${variantTag}-${process.pid}`
   );
-  const proc = spawn(
-    "npx",
-    [
-      "--yes",
-      "wrangler",
-      "dev",
-      "--port",
-      String(port),
-      "--ip",
-      "127.0.0.1",
-      "--persist-to",
-      persistTo
-    ],
-    {
-      cwd: WORKER_DIR,
-      stdio: ["ignore", "pipe", "pipe"],
-      // Put wrangler + workerd in their own process group so we can SIGTERM
-      // the whole tree on cleanup. npx + wrangler + workerd is three layers
-      // and a plain proc.kill() only signals the npx wrapper.
-      detached: true,
-      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" }
-    }
-  );
+  // npx is a plain executable on macOS/Linux but a `.cmd` shim on Windows,
+  // which Node's spawn can't launch directly (ENOENT for "npx", EINVAL for
+  // "npx.cmd" since the CVE-2024-27980 fix) — so Windows goes through the
+  // shell. POSIX keeps the args array + its own process group so cleanup can
+  // SIGTERM the npx→wrangler→workerd tree; Windows passes a single command
+  // string (an args array with shell:true both warns DEP0190 and skips
+  // quoting) with the persist path quoted for spaces, and is tree-killed by pid.
+  const isWindows = process.platform === "win32";
+  const spawnEnv = { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" };
+  const proc = isWindows
+    ? spawn(
+        `npx --yes wrangler dev --port ${port} --ip 127.0.0.1 --persist-to "${persistTo}"`,
+        {
+          cwd: WORKER_DIR,
+          stdio: ["ignore", "pipe", "pipe"],
+          shell: true,
+          env: spawnEnv
+        }
+      )
+    : spawn(
+        "npx",
+        [
+          "--yes",
+          "wrangler",
+          "dev",
+          "--port",
+          String(port),
+          "--ip",
+          "127.0.0.1",
+          "--persist-to",
+          persistTo
+        ],
+        {
+          cwd: WORKER_DIR,
+          stdio: ["ignore", "pipe", "pipe"],
+          // Own process group so cleanup can SIGTERM the whole tree; npx +
+          // wrangler + workerd is three layers and a plain proc.kill() only
+          // signals the npx wrapper.
+          detached: true,
+          env: spawnEnv
+        }
+      );
 
   let resolved = false;
   const captured = [];
@@ -241,6 +260,13 @@ export async function startWorkerd({ variant } = {}) {
           )
         );
       }
+    });
+    // A spawn failure (e.g. npx not found) emits 'error', not 'exit'. With no
+    // listener that would surface as an unhandled 'error' event and crash the
+    // whole server; turn it into a rejection so the caller degrades to
+    // "no execute_code" while the passthrough tools keep working.
+    proc.on("error", (err) => {
+      if (!resolved) reject(err);
     });
     setTimeout(() => {
       if (!resolved) {
@@ -393,11 +419,20 @@ export function installCleanup({ wranglerProc, callbackServer, upstreamClient })
     if (cleaned) return;
     cleaned = true;
     try {
-      // Wrangler was spawned with detached:true, so it's the leader of its
-      // own process group. Signal the whole group (-pid) to take down
-      // workerd and any intermediates too.
+      // Take down wrangler + workerd + any intermediates, not just the
+      // wrapper. On POSIX wrangler leads its own process group (spawned
+      // detached), so signal the group (-pid). Windows has no process groups;
+      // taskkill /T walks the child tree down from the shell's pid.
       const proc = getProc();
-      if (proc?.pid) process.kill(-proc.pid, "SIGTERM");
+      if (proc?.pid) {
+        if (process.platform === "win32") {
+          spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], {
+            stdio: "ignore"
+          });
+        } else {
+          process.kill(-proc.pid, "SIGTERM");
+        }
+      }
     } catch {}
     try { callbackServer?.close(); } catch {}
     try { upstreamClient?.close(); } catch {}
