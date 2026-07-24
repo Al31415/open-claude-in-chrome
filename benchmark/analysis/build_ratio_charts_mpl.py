@@ -105,8 +105,12 @@ for metric, cfg in CHARTS.items():
         ax.spines[side].set_visible(side in ("top", "bottom"))
         ax.spines[side].set_color(GRID_HOT)
     for g in TICKS:
-        ax.axhline(g, color=GRID_HOT if abs(g - 1) < 1e-9 else GRID_SOFT,
-                   lw=1.4 if abs(g - 1) < 1e-9 else 0.9, zorder=1)
+        if abs(g - 1) < 1e-9:
+            # the break-even reference (the chart's "zero line"): clearly darker
+            # than the rest of the grid so the eye can anchor on it
+            ax.axhline(g, color=MUTED, lw=1.8, zorder=2)
+        else:
+            ax.axhline(g, color=GRID_SOFT, lw=0.9, zorder=1)
     for gx in xticks:
         ax.axvline(gx, color="#f2f1ed", lw=0.9, zorder=0)
     ax.set_xlabel(cfg["xlabel"], fontsize=10.5, color=MUTED)
