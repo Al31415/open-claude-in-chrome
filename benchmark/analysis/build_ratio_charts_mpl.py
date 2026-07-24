@@ -97,6 +97,9 @@ for metric, cfg in CHARTS.items():
     ax.set_xlim(0, xmax)
     ax.set_ylim(YLO, YHI)
     ax.set_yticks(TICKS); ax.set_yticklabels(TICK_LABELS, fontsize=9, color=DIM)
+    for tick, val in zip(ax.get_yticklabels(), TICKS):
+        if abs(val - 1) < 1e-9:  # the break-even label matches its darker line
+            tick.set_color(MUTED); tick.set_fontweight("bold")
     ax.minorticks_off()
     xticks = np.arange(0, xmax + 1e-9, cfg["xstep"])
     ax.set_xticks(xticks); ax.set_xticklabels([cfg["xfmt"](v) for v in xticks], fontsize=9, color=DIM)
