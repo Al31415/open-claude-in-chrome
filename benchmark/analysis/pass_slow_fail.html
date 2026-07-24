@@ -1,0 +1,226 @@
+<!doctype html><meta charset="utf-8"><style>*{margin:0}body{background:#fff}</style><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 458" width="1180" height="458" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Inter,sans-serif">
+<rect width="1180" height="458" fill="#ffffff"/>
+<text x="176" y="26" font-size="18" font-weight="700" fill="#1b1f24">Pass, slow, or fail: every arm against every task</text>
+<text x="176" y="45" font-size="12.5" fill="#8a929c">Held-out test set, 12 tasks &#183; 13 arms &#183; accuracy is deterministically re-graded (see accuracy_regrade.py), not the raw LLM-judge verdict</text>
+<circle cx="181" cy="58" r="5" fill="#0f8a5f"/>
+<text x="192" y="62" font-size="10.5" fill="#5b6571">passed</text>
+<circle cx="261.6" cy="58" r="5" fill="#ca8a04"/>
+<text x="272.6" y="62" font-size="10.5" fill="#5b6571">passed, but slow for that arm (within-arm time outlier)</text>
+<circle cx="641.1" cy="58" r="5" fill="#c13a2e"/>
+<text x="652.1" y="62" font-size="10.5" fill="#5b6571">failed</text>
+<text x="213.8" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#808000" transform="rotate(-40 213.8 100)">1a</text>
+<text x="289.5" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#a9a9a9" transform="rotate(-40 289.5 100)">1b</text>
+<text x="365.2" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#4363d8" transform="rotate(-40 365.2 100)">1c</text>
+<text x="440.9" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#3cb44b" transform="rotate(-40 440.9 100)">2a</text>
+<text x="516.6" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#42a5c4" transform="rotate(-40 516.6 100)">2b</text>
+<text x="592.3" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#d81b8c" transform="rotate(-40 592.3 100)">3a</text>
+<text x="668.0" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#469990" transform="rotate(-40 668.0 100)">3b</text>
+<text x="743.7" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#e6194B" transform="rotate(-40 743.7 100)">4a</text>
+<text x="819.4" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#9A6324" transform="rotate(-40 819.4 100)">4b</text>
+<text x="895.1" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#800000" transform="rotate(-40 895.1 100)">5a</text>
+<text x="970.8" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#911eb4" transform="rotate(-40 970.8 100)">5b</text>
+<text x="1046.5" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#000075" transform="rotate(-40 1046.5 100)">6a</text>
+<text x="1122.2" y="100" text-anchor="start" font-size="11" font-weight="700" fill="#f58231" transform="rotate(-40 1122.2 100)">6b</text>
+<line x1="176.0" y1="108" x2="176.0" y2="432" stroke="#f2f1ed"/>
+<line x1="251.7" y1="108" x2="251.7" y2="432" stroke="#f2f1ed"/>
+<line x1="327.4" y1="108" x2="327.4" y2="432" stroke="#f2f1ed"/>
+<line x1="403.1" y1="108" x2="403.1" y2="432" stroke="#f2f1ed"/>
+<line x1="478.8" y1="108" x2="478.8" y2="432" stroke="#f2f1ed"/>
+<line x1="554.5" y1="108" x2="554.5" y2="432" stroke="#f2f1ed"/>
+<line x1="630.2" y1="108" x2="630.2" y2="432" stroke="#f2f1ed"/>
+<line x1="705.8" y1="108" x2="705.8" y2="432" stroke="#f2f1ed"/>
+<line x1="781.5" y1="108" x2="781.5" y2="432" stroke="#f2f1ed"/>
+<line x1="857.2" y1="108" x2="857.2" y2="432" stroke="#f2f1ed"/>
+<line x1="932.9" y1="108" x2="932.9" y2="432" stroke="#f2f1ed"/>
+<line x1="1008.6" y1="108" x2="1008.6" y2="432" stroke="#f2f1ed"/>
+<line x1="1084.3" y1="108" x2="1084.3" y2="432" stroke="#f2f1ed"/>
+<line x1="1160.0" y1="108" x2="1160.0" y2="432" stroke="#f2f1ed"/>
+<circle cx="10" cy="125.0" r="3.5" fill="#b45309"/>
+<text x="20" y="125.5" font-size="11.5" fill="#1b1f24">dashdish-11</text>
+<circle cx="213.8" cy="125.0" r="5" fill="#0f8a5f"><title>1a &#183; dashdish-11: passed (1.93m)</title></circle>
+<circle cx="289.5" cy="125.0" r="5" fill="#0f8a5f"><title>1b &#183; dashdish-11: passed (1.83m)</title></circle>
+<circle cx="365.2" cy="125.0" r="5" fill="#0f8a5f"><title>1c &#183; dashdish-11: passed (1.56m)</title></circle>
+<circle cx="440.9" cy="125.0" r="5" fill="#0f8a5f"><title>2a &#183; dashdish-11: passed (1.76m)</title></circle>
+<circle cx="516.6" cy="125.0" r="5" fill="#0f8a5f"><title>2b &#183; dashdish-11: passed (1.54m)</title></circle>
+<circle cx="592.3" cy="125.0" r="5" fill="#0f8a5f"><title>3a &#183; dashdish-11: passed (1.39m)</title></circle>
+<circle cx="668.0" cy="125.0" r="5" fill="#0f8a5f"><title>3b &#183; dashdish-11: passed (1.85m)</title></circle>
+<circle cx="743.7" cy="125.0" r="5" fill="#0f8a5f"><title>4a &#183; dashdish-11: passed (3.98m)</title></circle>
+<circle cx="819.4" cy="125.0" r="5" fill="#0f8a5f"><title>4b &#183; dashdish-11: passed (2.19m)</title></circle>
+<circle cx="895.1" cy="125.0" r="5" fill="#0f8a5f"><title>5a &#183; dashdish-11: passed (3.17m)</title></circle>
+<circle cx="970.8" cy="125.0" r="5" fill="#0f8a5f"><title>5b &#183; dashdish-11: passed (2.14m)</title></circle>
+<circle cx="1046.5" cy="125.0" r="5" fill="#0f8a5f"><title>6a &#183; dashdish-11: passed (1.73m)</title></circle>
+<circle cx="1122.2" cy="125.0" r="5" fill="#0f8a5f"><title>6b &#183; dashdish-11: passed (1.52m)</title></circle>
+<rect x="176" y="135.0" width="984.0" height="27" fill="#faf9f6"/>
+<circle cx="10" cy="152.0" r="3.5" fill="#c13a2e"/>
+<text x="20" y="152.5" font-size="11.5" fill="#1b1f24">dashdish-10</text>
+<circle cx="213.8" cy="152.0" r="5" fill="#0f8a5f"><title>1a &#183; dashdish-10: passed (2.07m)</title></circle>
+<circle cx="289.5" cy="152.0" r="5" fill="#0f8a5f"><title>1b &#183; dashdish-10: passed (2.24m)</title></circle>
+<circle cx="365.2" cy="152.0" r="5" fill="#0f8a5f"><title>1c &#183; dashdish-10: passed (1.8m)</title></circle>
+<circle cx="440.9" cy="152.0" r="5" fill="#0f8a5f"><title>2a &#183; dashdish-10: passed (2.5m)</title></circle>
+<circle cx="516.6" cy="152.0" r="5" fill="#0f8a5f"><title>2b &#183; dashdish-10: passed (1.91m)</title></circle>
+<circle cx="592.3" cy="152.0" r="5" fill="#ca8a04"><title>3a &#183; dashdish-10: passed, slow (7.74m)</title></circle>
+<circle cx="668.0" cy="152.0" r="5" fill="#0f8a5f"><title>3b &#183; dashdish-10: passed (1.85m)</title></circle>
+<circle cx="743.7" cy="152.0" r="5" fill="#0f8a5f"><title>4a &#183; dashdish-10: passed (4.46m)</title></circle>
+<circle cx="819.4" cy="152.0" r="5" fill="#0f8a5f"><title>4b &#183; dashdish-10: passed (3.05m)</title></circle>
+<circle cx="895.1" cy="152.0" r="5" fill="#0f8a5f"><title>5a &#183; dashdish-10: passed (1.93m)</title></circle>
+<circle cx="970.8" cy="152.0" r="5" fill="#0f8a5f"><title>5b &#183; dashdish-10: passed (2.25m)</title></circle>
+<circle cx="1046.5" cy="152.0" r="5" fill="#0f8a5f"><title>6a &#183; dashdish-10: passed (2.58m)</title></circle>
+<circle cx="1122.2" cy="152.0" r="5" fill="#0f8a5f"><title>6b &#183; dashdish-10: passed (2.09m)</title></circle>
+<circle cx="10" cy="179.0" r="3.5" fill="#0f8a5f"/>
+<text x="20" y="179.5" font-size="11.5" fill="#1b1f24">zilloft-3</text>
+<circle cx="213.8" cy="179.0" r="5" fill="#0f8a5f"><title>1a &#183; zilloft-3: passed (3.37m)</title></circle>
+<circle cx="289.5" cy="179.0" r="5" fill="#0f8a5f"><title>1b &#183; zilloft-3: passed (3.83m)</title></circle>
+<circle cx="365.2" cy="179.0" r="5" fill="#ca8a04"><title>1c &#183; zilloft-3: passed, slow (3.54m)</title></circle>
+<circle cx="440.9" cy="179.0" r="5" fill="#0f8a5f"><title>2a &#183; zilloft-3: passed (2.42m)</title></circle>
+<circle cx="516.6" cy="179.0" r="5" fill="#ca8a04"><title>2b &#183; zilloft-3: passed, slow (5.67m)</title></circle>
+<circle cx="592.3" cy="179.0" r="5" fill="#0f8a5f"><title>3a &#183; zilloft-3: passed (2.71m)</title></circle>
+<circle cx="668.0" cy="179.0" r="5" fill="#0f8a5f"><title>3b &#183; zilloft-3: passed (2.67m)</title></circle>
+<circle cx="743.7" cy="179.0" r="5" fill="#0f8a5f"><title>4a &#183; zilloft-3: passed (7.17m)</title></circle>
+<circle cx="819.4" cy="179.0" r="5" fill="#0f8a5f"><title>4b &#183; zilloft-3: passed (5.8m)</title></circle>
+<circle cx="895.1" cy="179.0" r="5" fill="#0f8a5f"><title>5a &#183; zilloft-3: passed (2.62m)</title></circle>
+<circle cx="970.8" cy="179.0" r="5" fill="#0f8a5f"><title>5b &#183; zilloft-3: passed (3.04m)</title></circle>
+<circle cx="1046.5" cy="179.0" r="5" fill="#ca8a04"><title>6a &#183; zilloft-3: passed, slow (3.9m)</title></circle>
+<circle cx="1122.2" cy="179.0" r="5" fill="#0f8a5f"><title>6b &#183; zilloft-3: passed (2.43m)</title></circle>
+<rect x="176" y="189.0" width="984.0" height="27" fill="#faf9f6"/>
+<circle cx="10" cy="206.0" r="3.5" fill="#c13a2e"/>
+<text x="20" y="206.5" font-size="11.5" fill="#1b1f24">dashdish-7</text>
+<circle cx="213.8" cy="206.0" r="5" fill="#0f8a5f"><title>1a &#183; dashdish-7: passed (2.07m)</title></circle>
+<circle cx="289.5" cy="206.0" r="5" fill="#0f8a5f"><title>1b &#183; dashdish-7: passed (1.64m)</title></circle>
+<circle cx="365.2" cy="206.0" r="5" fill="#0f8a5f"><title>1c &#183; dashdish-7: passed (1.59m)</title></circle>
+<circle cx="440.9" cy="206.0" r="5" fill="#0f8a5f"><title>2a &#183; dashdish-7: passed (1.82m)</title></circle>
+<circle cx="516.6" cy="206.0" r="5" fill="#0f8a5f"><title>2b &#183; dashdish-7: passed (1.99m)</title></circle>
+<circle cx="592.3" cy="206.0" r="5" fill="#0f8a5f"><title>3a &#183; dashdish-7: passed (1.67m)</title></circle>
+<circle cx="668.0" cy="206.0" r="5" fill="#0f8a5f"><title>3b &#183; dashdish-7: passed (1.74m)</title></circle>
+<circle cx="743.7" cy="206.0" r="5" fill="#0f8a5f"><title>4a &#183; dashdish-7: passed (3.71m)</title></circle>
+<circle cx="819.4" cy="206.0" r="5" fill="#0f8a5f"><title>4b &#183; dashdish-7: passed (2.43m)</title></circle>
+<circle cx="895.1" cy="206.0" r="5" fill="#0f8a5f"><title>5a &#183; dashdish-7: passed (1.7m)</title></circle>
+<circle cx="970.8" cy="206.0" r="5" fill="#0f8a5f"><title>5b &#183; dashdish-7: passed (2.01m)</title></circle>
+<circle cx="1046.5" cy="206.0" r="5" fill="#0f8a5f"><title>6a &#183; dashdish-7: passed (1.98m)</title></circle>
+<circle cx="1122.2" cy="206.0" r="5" fill="#0f8a5f"><title>6b &#183; dashdish-7: passed (2.05m)</title></circle>
+<circle cx="10" cy="233.0" r="3.5" fill="#0f8a5f"/>
+<text x="20" y="233.5" font-size="11.5" fill="#1b1f24">dashdish-1</text>
+<circle cx="213.8" cy="233.0" r="5" fill="#0f8a5f"><title>1a &#183; dashdish-1: passed (0.27m)</title></circle>
+<circle cx="289.5" cy="233.0" r="5" fill="#0f8a5f"><title>1b &#183; dashdish-1: passed (0.14m)</title></circle>
+<circle cx="365.2" cy="233.0" r="5" fill="#0f8a5f"><title>1c &#183; dashdish-1: passed (0.15m)</title></circle>
+<circle cx="440.9" cy="233.0" r="5" fill="#0f8a5f"><title>2a &#183; dashdish-1: passed (0.22m)</title></circle>
+<circle cx="516.6" cy="233.0" r="5" fill="#0f8a5f"><title>2b &#183; dashdish-1: passed (0.17m)</title></circle>
+<circle cx="592.3" cy="233.0" r="5" fill="#0f8a5f"><title>3a &#183; dashdish-1: passed (0.21m)</title></circle>
+<circle cx="668.0" cy="233.0" r="5" fill="#0f8a5f"><title>3b &#183; dashdish-1: passed (0.2m)</title></circle>
+<circle cx="743.7" cy="233.0" r="5" fill="#0f8a5f"><title>4a &#183; dashdish-1: passed (0.89m)</title></circle>
+<circle cx="819.4" cy="233.0" r="5" fill="#0f8a5f"><title>4b &#183; dashdish-1: passed (0.33m)</title></circle>
+<circle cx="895.1" cy="233.0" r="5" fill="#0f8a5f"><title>5a &#183; dashdish-1: passed (0.17m)</title></circle>
+<circle cx="970.8" cy="233.0" r="5" fill="#0f8a5f"><title>5b &#183; dashdish-1: passed (0.22m)</title></circle>
+<circle cx="1046.5" cy="233.0" r="5" fill="#0f8a5f"><title>6a &#183; dashdish-1: passed (0.24m)</title></circle>
+<circle cx="1122.2" cy="233.0" r="5" fill="#0f8a5f"><title>6b &#183; dashdish-1: passed (0.3m)</title></circle>
+<rect x="176" y="243.0" width="984.0" height="27" fill="#faf9f6"/>
+<circle cx="10" cy="260.0" r="3.5" fill="#0f8a5f"/>
+<text x="20" y="260.5" font-size="11.5" fill="#1b1f24">dashdish-2</text>
+<circle cx="213.8" cy="260.0" r="5" fill="#0f8a5f"><title>1a &#183; dashdish-2: passed (2.53m)</title></circle>
+<circle cx="289.5" cy="260.0" r="5" fill="#0f8a5f"><title>1b &#183; dashdish-2: passed (1.61m)</title></circle>
+<circle cx="365.2" cy="260.0" r="5" fill="#0f8a5f"><title>1c &#183; dashdish-2: passed (1.66m)</title></circle>
+<circle cx="440.9" cy="260.0" r="5" fill="#0f8a5f"><title>2a &#183; dashdish-2: passed (1.89m)</title></circle>
+<circle cx="516.6" cy="260.0" r="5" fill="#0f8a5f"><title>2b &#183; dashdish-2: passed (1.62m)</title></circle>
+<circle cx="592.3" cy="260.0" r="5" fill="#0f8a5f"><title>3a &#183; dashdish-2: passed (1.58m)</title></circle>
+<circle cx="668.0" cy="260.0" r="5" fill="#0f8a5f"><title>3b &#183; dashdish-2: passed (1.46m)</title></circle>
+<circle cx="743.7" cy="260.0" r="5" fill="#0f8a5f"><title>4a &#183; dashdish-2: passed (3.91m)</title></circle>
+<circle cx="819.4" cy="260.0" r="5" fill="#0f8a5f"><title>4b &#183; dashdish-2: passed (2.57m)</title></circle>
+<circle cx="895.1" cy="260.0" r="5" fill="#0f8a5f"><title>5a &#183; dashdish-2: passed (1.55m)</title></circle>
+<circle cx="970.8" cy="260.0" r="5" fill="#0f8a5f"><title>5b &#183; dashdish-2: passed (1.49m)</title></circle>
+<circle cx="1046.5" cy="260.0" r="5" fill="#0f8a5f"><title>6a &#183; dashdish-2: passed (1.6m)</title></circle>
+<circle cx="1122.2" cy="260.0" r="5" fill="#0f8a5f"><title>6b &#183; dashdish-2: passed (1.86m)</title></circle>
+<circle cx="10" cy="287.0" r="3.5" fill="#b45309"/>
+<text x="20" y="287.5" font-size="11.5" fill="#1b1f24">dashdish-8</text>
+<text x="213.8" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="289.5" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="365.2" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="440.9" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="516.6" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="592.3" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="668.0" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="743.7" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="819.4" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="895.1" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="970.8" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="1046.5" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="1122.2" y="288.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<rect x="176" y="297.0" width="984.0" height="27" fill="#faf9f6"/>
+<circle cx="10" cy="314.0" r="3.5" fill="#b45309"/>
+<text x="20" y="314.5" font-size="11.5" fill="#1b1f24">zilloft-6</text>
+<circle cx="213.8" cy="314.0" r="5" fill="#0f8a5f"><title>1a &#183; zilloft-6: passed (3.51m)</title></circle>
+<circle cx="289.5" cy="314.0" r="5" fill="#0f8a5f"><title>1b &#183; zilloft-6: passed (3.47m)</title></circle>
+<circle cx="365.2" cy="314.0" r="5" fill="#0f8a5f"><title>1c &#183; zilloft-6: passed (3.09m)</title></circle>
+<circle cx="440.9" cy="314.0" r="5" fill="#ca8a04"><title>2a &#183; zilloft-6: passed, slow (3.38m)</title></circle>
+<circle cx="516.6" cy="314.0" r="5" fill="#0f8a5f"><title>2b &#183; zilloft-6: passed (2.84m)</title></circle>
+<circle cx="592.3" cy="314.0" r="5" fill="#0f8a5f"><title>3a &#183; zilloft-6: passed (2.67m)</title></circle>
+<circle cx="668.0" cy="314.0" r="5" fill="#ca8a04"><title>3b &#183; zilloft-6: passed, slow (3.66m)</title></circle>
+<circle cx="743.7" cy="314.0" r="5" fill="#0f8a5f"><title>4a &#183; zilloft-6: passed (6.98m)</title></circle>
+<circle cx="819.4" cy="314.0" r="5" fill="#0f8a5f"><title>4b &#183; zilloft-6: passed (6.76m)</title></circle>
+<circle cx="895.1" cy="314.0" r="5" fill="#ca8a04"><title>5a &#183; zilloft-6: passed, slow (3.97m)</title></circle>
+<circle cx="970.8" cy="314.0" r="5" fill="#0f8a5f"><title>5b &#183; zilloft-6: passed (3.16m)</title></circle>
+<circle cx="1046.5" cy="314.0" r="5" fill="#ca8a04"><title>6a &#183; zilloft-6: passed, slow (3.85m)</title></circle>
+<circle cx="1122.2" cy="314.0" r="5" fill="#ca8a04"><title>6b &#183; zilloft-6: passed, slow (3.27m)</title></circle>
+<circle cx="10" cy="341.0" r="3.5" fill="#c13a2e"/>
+<text x="20" y="341.5" font-size="11.5" fill="#1b1f24">zilloft-9</text>
+<circle cx="213.8" cy="341.0" r="5" fill="#ca8a04"><title>1a &#183; zilloft-9: passed, slow (4.52m)</title></circle>
+<circle cx="289.5" cy="341.0" r="5" fill="#ca8a04"><title>1b &#183; zilloft-9: passed, slow (5.99m)</title></circle>
+<circle cx="365.2" cy="341.0" r="5" fill="#ca8a04"><title>1c &#183; zilloft-9: passed, slow (4.67m)</title></circle>
+<circle cx="440.9" cy="341.0" r="5" fill="#ca8a04"><title>2a &#183; zilloft-9: passed, slow (3.74m)</title></circle>
+<circle cx="516.6" cy="341.0" r="5" fill="#ca8a04"><title>2b &#183; zilloft-9: passed, slow (4.21m)</title></circle>
+<circle cx="592.3" cy="341.0" r="5" fill="#ca8a04"><title>3a &#183; zilloft-9: passed, slow (3.75m)</title></circle>
+<circle cx="668.0" cy="341.0" r="5" fill="#ca8a04"><title>3b &#183; zilloft-9: passed, slow (3.33m)</title></circle>
+<circle cx="743.7" cy="341.0" r="5" fill="#ca8a04"><title>4a &#183; zilloft-9: passed, slow (8.92m)</title></circle>
+<circle cx="819.4" cy="341.0" r="5" fill="#0f8a5f"><title>4b &#183; zilloft-9: passed (6.27m)</title></circle>
+<circle cx="895.1" cy="341.0" r="5" fill="#0f8a5f"><title>5a &#183; zilloft-9: passed (3.47m)</title></circle>
+<circle cx="970.8" cy="341.0" r="5" fill="#0f8a5f"><title>5b &#183; zilloft-9: passed (3.28m)</title></circle>
+<circle cx="1046.5" cy="341.0" r="5" fill="#ca8a04"><title>6a &#183; zilloft-9: passed, slow (4.88m)</title></circle>
+<circle cx="1122.2" cy="341.0" r="5" fill="#ca8a04"><title>6b &#183; zilloft-9: passed, slow (3.29m)</title></circle>
+<rect x="176" y="351.0" width="984.0" height="27" fill="#faf9f6"/>
+<circle cx="10" cy="368.0" r="3.5" fill="#c13a2e"/>
+<text x="20" y="368.5" font-size="11.5" fill="#1b1f24">zilloft-10</text>
+<text x="213.8" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="289.5" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="365.2" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="440.9" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="516.6" cy="368.0" r="5" fill="#0f8a5f"><title>2b &#183; zilloft-10: passed (3.57m)</title></circle>
+<text x="592.3" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="668.0" cy="368.0" r="5" fill="#0f8a5f"><title>3b &#183; zilloft-10: passed (2.84m)</title></circle>
+<text x="743.7" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="819.4" cy="368.0" r="5" fill="#0f8a5f"><title>4b &#183; zilloft-10: passed (4.7m)</title></circle>
+<circle cx="895.1" cy="368.0" r="5" fill="#0f8a5f"><title>5a &#183; zilloft-10: passed (1.95m)</title></circle>
+<circle cx="970.8" cy="368.0" r="5" fill="#0f8a5f"><title>5b &#183; zilloft-10: passed (2.31m)</title></circle>
+<text x="1046.5" y="369.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="1122.2" cy="368.0" r="5" fill="#0f8a5f"><title>6b &#183; zilloft-10: passed (1.56m)</title></circle>
+<circle cx="10" cy="395.0" r="3.5" fill="#b45309"/>
+<text x="20" y="395.5" font-size="11.5" fill="#1b1f24">zilloft-5</text>
+<text x="213.8" y="396.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="289.5" y="396.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="365.2" y="396.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="440.9" y="396.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="516.6" cy="395.0" r="5" fill="#0f8a5f"><title>2b &#183; zilloft-5: passed (3.8m)</title></circle>
+<circle cx="592.3" cy="395.0" r="5" fill="#0f8a5f"><title>3a &#183; zilloft-5: passed (1.39m)</title></circle>
+<circle cx="668.0" cy="395.0" r="5" fill="#0f8a5f"><title>3b &#183; zilloft-5: passed (1.98m)</title></circle>
+<text x="743.7" y="396.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="819.4" cy="395.0" r="5" fill="#ca8a04"><title>4b &#183; zilloft-5: passed, slow (8.7m)</title></circle>
+<circle cx="895.1" cy="395.0" r="5" fill="#0f8a5f"><title>5a &#183; zilloft-5: passed (1.17m)</title></circle>
+<circle cx="970.8" cy="395.0" r="5" fill="#0f8a5f"><title>5b &#183; zilloft-5: passed (1.34m)</title></circle>
+<circle cx="1046.5" cy="395.0" r="5" fill="#0f8a5f"><title>6a &#183; zilloft-5: passed (1.54m)</title></circle>
+<circle cx="1122.2" cy="395.0" r="5" fill="#0f8a5f"><title>6b &#183; zilloft-5: passed (1.28m)</title></circle>
+<rect x="176" y="405.0" width="984.0" height="27" fill="#faf9f6"/>
+<circle cx="10" cy="422.0" r="3.5" fill="#b45309"/>
+<text x="20" y="422.5" font-size="11.5" fill="#1b1f24">zilloft-2</text>
+<text x="213.8" y="423.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="289.5" y="423.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="365.2" y="423.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="440.9" cy="422.0" r="5" fill="#0f8a5f"><title>2a &#183; zilloft-2: passed (1.14m)</title></circle>
+<circle cx="516.6" cy="422.0" r="5" fill="#0f8a5f"><title>2b &#183; zilloft-2: passed (1.11m)</title></circle>
+<circle cx="592.3" cy="422.0" r="5" fill="#0f8a5f"><title>3a &#183; zilloft-2: passed (1.11m)</title></circle>
+<circle cx="668.0" cy="422.0" r="5" fill="#0f8a5f"><title>3b &#183; zilloft-2: passed (2.09m)</title></circle>
+<text x="743.7" y="423.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="819.4" y="423.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<text x="895.1" y="423.0" text-anchor="middle" font-size="12" font-weight="700" fill="#c13a2e">F</text>
+<circle cx="970.8" cy="422.0" r="5" fill="#0f8a5f"><title>5b &#183; zilloft-2: passed (1.74m)</title></circle>
+<circle cx="1046.5" cy="422.0" r="5" fill="#0f8a5f"><title>6a &#183; zilloft-2: passed (1.14m)</title></circle>
+<circle cx="1122.2" cy="422.0" r="5" fill="#0f8a5f"><title>6b &#183; zilloft-2: passed (1.1m)</title></circle>
+<line x1="176" y1="108" x2="1160" y2="108" stroke="#c9c7c1"/>
+<line x1="176" y1="432.0" x2="1160" y2="432.0" stroke="#c9c7c1"/>
+</svg>

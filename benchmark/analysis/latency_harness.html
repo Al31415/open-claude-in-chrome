@@ -1,0 +1,74 @@
+<!doctype html><meta charset="utf-8"><style>*{margin:0}body{background:#fff}</style><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 630" width="1120" height="630" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Inter,sans-serif">
+<rect width="1120" height="630" fill="#ffffff"/>
+<defs><pattern id="hx-harness" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse"><rect width="6" height="6" fill="#fbfbf9"/><line x1="0" y1="0" x2="0" y2="6" stroke="#8a929c" stroke-width="3"/></pattern></defs>
+<text x="60" y="26" font-size="18" font-weight="700" fill="#1b1f24">Per-turn latency: harness overhead vs. model inference</text>
+<text x="60" y="45" font-size="12.5" fill="#8a929c">Real measured seconds per turn, stacked &#183; harness = med_action (one browser round-trip) &#183; inference = the rest &#183; harness is the thin sliver</text>
+<rect x="60" y="53" width="11" height="11" rx="2" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<text x="76" y="62" font-size="10.5" fill="#5b6571">harness overhead (program + IPC round-trip)</text>
+<line x1="60.0" y1="74" x2="60.0" y2="572" stroke="#f2f1ed"/>
+<text x="60.0" y="588" text-anchor="middle" font-size="10" fill="#8a929c">0s</text>
+<line x1="199.1" y1="74" x2="199.1" y2="572" stroke="#f2f1ed"/>
+<text x="199.1" y="588" text-anchor="middle" font-size="10" fill="#8a929c">2s</text>
+<line x1="338.3" y1="74" x2="338.3" y2="572" stroke="#f2f1ed"/>
+<text x="338.3" y="588" text-anchor="middle" font-size="10" fill="#8a929c">4s</text>
+<line x1="477.4" y1="74" x2="477.4" y2="572" stroke="#f2f1ed"/>
+<text x="477.4" y="588" text-anchor="middle" font-size="10" fill="#8a929c">6s</text>
+<line x1="616.5" y1="74" x2="616.5" y2="572" stroke="#f2f1ed"/>
+<text x="616.5" y="588" text-anchor="middle" font-size="10" fill="#8a929c">8s</text>
+<line x1="755.6" y1="74" x2="755.6" y2="572" stroke="#f2f1ed"/>
+<text x="755.6" y="588" text-anchor="middle" font-size="10" fill="#8a929c">10s</text>
+<line x1="894.8" y1="74" x2="894.8" y2="572" stroke="#f2f1ed"/>
+<text x="894.8" y="588" text-anchor="middle" font-size="10" fill="#8a929c">12s</text>
+<text x="50.0" y="95.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">1a</text>
+<rect x="60.0" y="78.0" width="21.4" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="81.4" y="78.0" width="234.6" height="26" rx="2" fill="#808000" opacity="0.9"/>
+<text x="322.0" y="95.0" font-size="11" fill="#5b6571">3.7s/turn &#183; harness 8.4%</text>
+<text x="50.0" y="133.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">1b</text>
+<rect x="60.0" y="116.0" width="8.0" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="68.0" y="116.0" width="250.8" height="26" rx="2" fill="#a9a9a9" opacity="0.9"/>
+<text x="324.8" y="133.0" font-size="11" fill="#5b6571">3.7s/turn &#183; harness 3.1%</text>
+<text x="50.0" y="171.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">1c</text>
+<rect x="60.0" y="154.0" width="8.6" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="68.6" y="154.0" width="236.9" height="26" rx="2" fill="#4363d8" opacity="0.9"/>
+<text x="311.6" y="171.0" font-size="11" fill="#5b6571">3.5s/turn &#183; harness 3.5%</text>
+<text x="50.0" y="209.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">2a</text>
+<rect x="60.0" y="192.0" width="11.5" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="71.5" y="192.0" width="210.4" height="26" rx="2" fill="#3cb44b" opacity="0.9"/>
+<text x="287.9" y="209.0" font-size="11" fill="#5b6571">3.2s/turn &#183; harness 5.2%</text>
+<text x="50.0" y="247.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">2b</text>
+<rect x="60.0" y="230.0" width="8.7" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="68.7" y="230.0" width="226.4" height="26" rx="2" fill="#42a5c4" opacity="0.9"/>
+<text x="301.1" y="247.0" font-size="11" fill="#5b6571">3.4s/turn &#183; harness 3.7%</text>
+<text x="50.0" y="285.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">3a</text>
+<rect x="60.0" y="268.0" width="9.8" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="69.8" y="268.0" width="278.2" height="26" rx="2" fill="#d81b8c" opacity="0.9"/>
+<text x="354.0" y="285.0" font-size="11" fill="#5b6571">4.1s/turn &#183; harness 3.4%</text>
+<text x="50.0" y="323.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">3b</text>
+<rect x="60.0" y="306.0" width="8.8" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="68.8" y="306.0" width="211.8" height="26" rx="2" fill="#469990" opacity="0.9"/>
+<text x="286.5" y="323.0" font-size="11" fill="#5b6571">3.2s/turn &#183; harness 4.0%</text>
+<text x="50.0" y="361.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">4a</text>
+<rect x="60.0" y="344.0" width="13.7" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="73.7" y="344.0" width="791.9" height="26" rx="2" fill="#e6194B" opacity="0.9"/>
+<text x="871.6" y="361.0" font-size="11" fill="#5b6571">11.6s/turn &#183; harness 1.7%</text>
+<text x="50.0" y="399.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">4b</text>
+<rect x="60.0" y="382.0" width="11.1" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="71.1" y="382.0" width="490.4" height="26" rx="2" fill="#9A6324" opacity="0.9"/>
+<text x="567.6" y="399.0" font-size="11" fill="#5b6571">7.2s/turn &#183; harness 2.2%</text>
+<text x="50.0" y="437.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">5a</text>
+<rect x="60.0" y="420.0" width="8.1" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="68.1" y="420.0" width="264.6" height="26" rx="2" fill="#800000" opacity="0.9"/>
+<text x="338.7" y="437.0" font-size="11" fill="#5b6571">3.9s/turn &#183; harness 3.0%</text>
+<text x="50.0" y="475.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">5b</text>
+<rect x="60.0" y="458.0" width="8.6" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="68.6" y="458.0" width="278.7" height="26" rx="2" fill="#911eb4" opacity="0.9"/>
+<text x="353.3" y="475.0" font-size="11" fill="#5b6571">4.1s/turn &#183; harness 3.0%</text>
+<text x="50.0" y="513.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">6a</text>
+<rect x="60.0" y="496.0" width="7.7" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="67.7" y="496.0" width="320.6" height="26" rx="2" fill="#000075" opacity="0.9"/>
+<text x="394.3" y="513.0" font-size="11" fill="#5b6571">4.7s/turn &#183; harness 2.4%</text>
+<text x="50.0" y="551.0" text-anchor="end" font-size="12" font-weight="700" fill="#1b1f24">6b</text>
+<rect x="60.0" y="534.0" width="7.7" height="26" fill="url(#hx-harness)" stroke="#8a929c" stroke-width="0.8"/>
+<rect x="67.7" y="534.0" width="297.0" height="26" rx="2" fill="#f58231" opacity="0.9"/>
+<text x="370.7" y="551.0" font-size="11" fill="#5b6571">4.4s/turn &#183; harness 2.5%</text>
+</svg>

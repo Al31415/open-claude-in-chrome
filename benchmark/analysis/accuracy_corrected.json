@@ -1,0 +1,385 @@
+{
+ "n_tasks": 12,
+ "order": [
+  "1a",
+  "1b",
+  "1c",
+  "2a",
+  "2b",
+  "3a",
+  "3b",
+  "4a",
+  "4b",
+  "5a",
+  "5b",
+  "6a",
+  "6b"
+ ],
+ "passed": {
+  "1a": 8,
+  "1b": 8,
+  "1c": 8,
+  "2a": 9,
+  "2b": 11,
+  "3a": 10,
+  "3b": 11,
+  "4a": 8,
+  "4b": 10,
+  "5a": 10,
+  "5b": 11,
+  "6a": 10,
+  "6b": 11
+ },
+ "matrix": {
+  "1a": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": false,
+   "zilloft-5": false,
+   "zilloft-10": false
+  },
+  "1b": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": false,
+   "zilloft-5": false,
+   "zilloft-10": false
+  },
+  "1c": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": false,
+   "zilloft-5": false,
+   "zilloft-10": false
+  },
+  "2a": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": false,
+   "zilloft-10": false
+  },
+  "2b": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": true,
+   "zilloft-10": true
+  },
+  "3a": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": true,
+   "zilloft-10": false
+  },
+  "3b": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": true,
+   "zilloft-10": true
+  },
+  "4a": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": false,
+   "zilloft-5": false,
+   "zilloft-10": false
+  },
+  "4b": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": false,
+   "zilloft-5": true,
+   "zilloft-10": true
+  },
+  "5a": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": false,
+   "zilloft-5": true,
+   "zilloft-10": true
+  },
+  "5b": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": true,
+   "zilloft-10": true
+  },
+  "6a": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": true,
+   "zilloft-10": false
+  },
+  "6b": {
+   "dashdish-11": true,
+   "dashdish-10": true,
+   "zilloft-3": true,
+   "dashdish-7": true,
+   "dashdish-1": true,
+   "dashdish-2": true,
+   "zilloft-6": true,
+   "zilloft-9": true,
+   "dashdish-8": false,
+   "zilloft-2": true,
+   "zilloft-5": true,
+   "zilloft-10": true
+  }
+ },
+ "phases": {
+  "P1": [
+   "1a",
+   "1b",
+   "1c"
+  ],
+  "P2": [
+   "2a",
+   "2b"
+  ],
+  "P3": [
+   "3a",
+   "3b"
+  ],
+  "P4": [
+   "4a",
+   "4b"
+  ],
+  "P5": [
+   "5a",
+   "5b"
+  ],
+  "P6": [
+   "6a",
+   "6b"
+  ]
+ },
+ "phase_avg": {
+  "P1": 8.0,
+  "P2": 10.0,
+  "P3": 10.5,
+  "P4": 9.0,
+  "P5": 10.5,
+  "P6": 10.5
+ },
+ "swing": {
+  "zilloft-2": 16,
+  "zilloft-5": 1,
+  "zilloft-10": 13
+ },
+ "audit": [
+  {
+   "arm": "1a",
+   "task": "zilloft-5",
+   "answer": 3,
+   "correct": 1,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "1b",
+   "task": "zilloft-5",
+   "answer": 3,
+   "correct": 1,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "1c",
+   "task": "zilloft-2",
+   "answer": 147,
+   "correct": 16,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "1c",
+   "task": "zilloft-5",
+   "answer": 3,
+   "correct": 1,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "1c",
+   "task": "zilloft-10",
+   "answer": 160,
+   "correct": 13,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "3a",
+   "task": "zilloft-10",
+   "answer": 160,
+   "correct": 13,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "5a",
+   "task": "zilloft-2",
+   "answer": 36,
+   "correct": 16,
+   "grader": "PASS",
+   "corrected": "fail"
+  },
+  {
+   "arm": "6a",
+   "task": "zilloft-10",
+   "answer": 160,
+   "correct": 13,
+   "grader": "PASS",
+   "corrected": "fail"
+  }
+ ],
+ "answer_text": {
+  "zilloft-2": {
+   "1a": "147 listings are displayed when filtering San Francisco, CA homes for 3 bedrooms and 2 bathrooms.",
+   "1b": "147 listings are displayed when filtering San Francisco homes to 3 bedrooms and 2 bathrooms.",
+   "1c": "147 listings are displayed after filtering San Francisco, CA homes for exactly 3 bedrooms and 2+ bathrooms.",
+   "2a": "16 listings are displayed after filtering San Francisco homes for 3 bedrooms and 2 bathrooms.",
+   "2b": "16 listings are displayed after filtering San Francisco homes to exactly 3 bedrooms and 2 bathrooms.",
+   "3a": "16 listings are displayed when filtering San Francisco homes for exactly 3 bedrooms and 2 bathrooms.",
+   "3b": "16 listings are displayed after filtering San Francisco homes to 3 bedrooms and 2 bathrooms.",
+   "4a": "147 listings are displayed after filtering San Francisco homes for 3 bedrooms and 2 bathrooms.",
+   "4b": "36 listings are displayed after filtering San Francisco homes to 3+ bedrooms and 2+ bathrooms.",
+   "5a": "36 listings are displayed (filtered to San Francisco homes with 3+ bedrooms and 2+ bathrooms).",
+   "5b": "16 listings are displayed after filtering San Francisco homes to 3 bedrooms and 2 bathrooms (applied via Beds & Baths filter: 3+ bedrooms with exact m",
+   "6a": "16 listings are displayed after filtering San Francisco homes for 3 bedrooms and 2 bathrooms.",
+   "6b": "16 listings are displayed after filtering San Francisco results for 3 bedrooms and 2 bathrooms."
+  },
+  "zilloft-5": {
+   "1a": "3 results are displayed when filtering San Jose listings to Townhomes priced $750,000\u2013$1,000,000.",
+   "1b": "3 results",
+   "1c": "3 results are displayed (though only 1 of the 3 listed properties is actually located in San Jose; the app's \"3 results\" count includes listings in Ga",
+   "2a": "3 results are displayed after filtering San Jose listings for Townhomes priced between $750,000 and $1,000,000.",
+   "2b": "1 result (620 Almaden Walk Loop, San Jose, CA 95125 \u2014 $950,000) is displayed when filtering San Jose listings to Townhomes priced $750,000\u2013$1,000,000.",
+   "3a": "1 result (a $950,000 townhouse at 620 Almaden Walk Loop, San Jose, CA 95125)",
+   "3b": "1 result (620 Almaden Walk Loop, San Jose, CA 95125 \u2014 $950,000 townhouse) is displayed after filtering San Jose listings to Townhomes priced $750,000\u2013",
+   "4a": "3 results are displayed after filtering San Jose listings for Townhomes priced between $750,000 and $1,000,000.",
+   "4b": "1 result. I searched San Jose on Zilloft, filtered Home Type to \"Townhomes\" only, set the Price Range to Minimum $750,000 / Maximum $1,000,000, and ap",
+   "5a": "1 result (620 Almaden Walk Loop, San Jose, CA 95125 \u2014 $950,000 townhouse) is displayed after filtering San Jose listings to Townhomes priced $750,000\u2013",
+   "5b": "1 result (620 Almaden Walk Loop, San Jose, CA 95125 \u2014 $950,000 Townhome) is displayed after filtering San Jose listings to Townhomes priced $750,000\u2013$",
+   "6a": "1 result is displayed (620 Almaden Walk Loop, San Jose, CA 95125 \u2014 $950,000, 3 bd, 3 ba Townhouse).",
+   "6b": "1 result is displayed (620 Almaden Walk Loop, San Jose, CA 95125 \u2014 $950,000, 3 bd/3 ba Townhouse) after filtering San Jose listings for Home Type = To"
+  },
+  "zilloft-10": {
+   "1a": "160 listings (Houses + Townhomes combined) are shown in San Francisco, CA priced up to $500,000, per the Zilloft site's filtered search results (Home ",
+   "1b": "160 (Zilloft shows 160 \"Houses\"/\"Townhomes\" listings in the San Francisco, CA search results when filtering price to \"Up to $500K\" and Home Type to Ho",
+   "1c": "160 listings (Houses and Townhomes combined) are shown in San Francisco with a price below $500,000, based on the site's search filters (San Francisco",
+   "2a": "160 Houses/Townhomes are listed in San Francisco with a price below $500,000.",
+   "2b": "13 (13 Houses/Townhomes are listed in San Francisco with a price below $500,000, per the \"13 results\" count shown after filtering Home Type to Houses ",
+   "3a": "160 listings (Houses + Townhomes combined) are shown for San Francisco with price below $500,000, per the results header count after applying Price (\"",
+   "3b": "13 (San Francisco listings that are Houses or Townhomes priced under $500,000, per the filtered results count on zilloft).",
+   "4a": "160 total listings (158 Houses + 2 Townhomes) are listed in the \"San Francisco, CA\" search with a price below $500,000.",
+   "4b": "13. I searched \"San Francisco\" on Zilloft, applied the Home Type filter for \"Houses\" and \"Townhomes\" (2 types selected), then set the Price maximum to",
+   "5a": "With the \"For Sale\" filter set to Houses + Townhomes and Price up to $500K in the San Francisco search, 13 results appeared, all labeled \"House for sa",
+   "5b": "In San Francisco, with the \"Houses\" and \"Townhomes\" home-type filters and a price cap applied, there are 13 listings priced at or under $500,000, all ",
+   "6a": "160 results (Houses and Townhomes in San Francisco, CA priced up to $500,000).",
+   "6b": "13 results (Houses + Townhomes in San Francisco under $500,000)."
+  }
+ },
+ "color": {
+  "1c": "#4363d8",
+  "1b": "#a9a9a9",
+  "1a": "#808000",
+  "2a": "#3cb44b",
+  "2b": "#42a5c4",
+  "3a": "#d81b8c",
+  "3b": "#469990",
+  "4a": "#e6194B",
+  "4b": "#9A6324",
+  "5b": "#911eb4",
+  "5a": "#800000",
+  "6a": "#000075",
+  "6b": "#f58231"
+ }
+}

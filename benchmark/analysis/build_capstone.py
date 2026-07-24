@@ -6,9 +6,61 @@ import json, os, statistics, html as HH
 
 BENCH = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D = json.load(open(os.path.join(BENCH, "analysis", "capstone.json")))
+
+# --- canonical arm renaming to the writeup's 6-phase scheme (1a-6b) ---
+# Rename-only: upstream ids stay put. We relabel EVERY occurrence of an arm short
+# across the whole data blob (dict keys, list elements, and any {"short": ...}
+# field, at any depth) so nested structures like turns.scale.fits and *.tasks[].sv
+# stay consistent with the charts. Recipe swap preserved: 5A (per-site) -> 5b,
+# 5B (single) -> 5a.
+RENAME = {"CinC": "1a", "OCIC-Ch": "1b", "OCIC-Br": "1c", "2A": "2a", "2B": "2b",
+          "3D": "3a", "3C": "3b", "4A": "4a", "4B": "4b", "5B": "5a", "5A": "5b",
+          "5C": "6a", "5D": "6b"}
+NEWORDER = ["1a", "1b", "1c", "2a", "2b", "3a", "3b", "4a", "4b", "5a", "5b", "6a", "6b"]
+_OLD = set(RENAME)  # domain and range are disjoint, so remap is idempotent-safe
+# The scalar-space scatter read a stale theme palette; snap rankcompare to the
+# canonical per-leg palette (keyed by OLD short, before the recursive rename).
+_canon = D["dist_byleg"]["color"]
+for _a in D["rankcompare"]["arms"]:
+    _a["color"] = _canon.get(_a["short"], _a.get("color"))
+def _remap(o):
+    if isinstance(o, dict):
+        return {RENAME.get(k, k): (RENAME[v] if k == "short" and v in _OLD else _remap(v))
+                for k, v in o.items()}
+    if isinstance(o, list):
+        return [RENAME[x] if isinstance(x, str) and x in _OLD else _remap(x) for x in o]
+    return o
+D = _remap(D)
+# display-order lists -> scheme order (left-to-right reads 1a..6b)
+D["dist_byleg"]["order"] = NEWORDER[:]
+_rank = {s: i for i, s in enumerate(NEWORDER)}
+D["arms"].sort(key=lambda a: _rank.get(a["short"], 99))
+
 ARMS = D["arms"]; ORDER = D["order"]; DIFF = D["diff"]
 BY = {a["id"]: a for a in ARMS}
 COLD = BY["exp1a-fixed-brave"]
+
+# --- deterministic accuracy correction (see accuracy_regrade.py) ---
+# capstone.json's accuracy came straight from REAL's llm_boolean judge, which
+# disagreed with itself on identical answers (verified by reading every run's
+# evaluation.json). Only 3 of 12 held-out tasks vary across arms at all; the
+# other 9 pass/fail identically everywhere and dashdish-8 fails everywhere
+# regardless of grading, so this only touches those 3 tasks' pass/fail + the
+# rollups that are computed from them (per-arm .passed, dist_byleg.acc, the
+# per-theme accuracy column).
+_ACC = json.load(open(os.path.join(BENCH, "analysis", "accuracy_corrected.json")))
+for _a in ARMS:
+    _sh = _a["short"]
+    _a["passed"] = _ACC["passed"][_sh]
+    for _c in _a["per_task"]:
+        if _c["t"] in _ACC["swing"]:
+            _c["passed"] = _ACC["matrix"][_sh][_c["t"]]
+            _c["fail"] = "" if _c["passed"] else _ACC["answer_text"][_c["t"]][_sh]
+D["dist_byleg"]["acc"] = dict(_ACC["passed"])
+for _t in D["themes"]:
+    _members = [a for a in _t["arms"] if a in _ACC["passed"]]
+    if _members:
+        _t["acc"] = round(sum(_ACC["passed"][a] for a in _members) / len(_members), 1)
 
 # within-arm "slow but passed": a passed task whose run time is an upper outlier
 # RELATIVE TO THIS ARM's own task times. Robust modified z-score (MAD-based,
@@ -117,9 +169,9 @@ def arm_registry_html():
 best_time = min(ARMS, key=lambda a: a["total"])
 kpis = f"""<div class="kpis">
 <div class="kpi"><div class="n">13 arms &middot; 60 tasks-eq</div><div class="l">post-fix configurations over the same 12 held-out tasks</div></div>
-<div class="kpi"><div class="n">11/12 &middot; 23.4m</div><div class="l">the cold OCIC baseline every method has to beat</div></div>
+<div class="kpi"><div class="n">8/12 &middot; 23.4m</div><div class="l">the cold OCIC baseline every method has to beat</div></div>
 <div class="kpi"><div class="n">5D &middot; 20.9m</div><div class="l">only arm faster than cold (warm-up + recipe), on the hard tasks</div></div>
-<div class="kpi"><div class="n">11/12 across the board</div><div class="l">every arm ties on accuracy; the solvable set is capped (dashdish-8 is a broken, judge-random rubric)</div></div>
+<div class="kpi"><div class="n">8 to 11 of 12</div><div class="l">accuracy is narrow but not flat; 7 of 39 borderline grader verdicts were overturned against ground truth (&sect;2)</div></div>
 <div class="kpi"><div class="n">480k &rarr; 92k</div><div class="l">shrinking the fork's context (P4&rarr;P5) flipped it from worst to a tie</div></div>
 </div>"""
 
@@ -144,29 +196,34 @@ lever that turned out to matter most.</p>
 <div class="card">
 <div class="charttitle">Accuracy by arm <span class='sub'>tasks passed of 12</span></div>
 <div id="c_acc"></div>
-<p class="note">Tasks passed of 12. <b>Every arm sits at 11/12; none exceeds cold.</b> The only unsolved task,
-dashdish-8, is a broken rubric: all 13 arms give the cuisine-carousel answer, and the rubric's ground-truth answer is
-the curated collection rows, which no arm produces. The single judged pass (5D) was re-evaluated to check consistency
-and came back <b>3 pass / 2 fail over 5 runs</b>, confirming the LLM judge is a coin flip on the identical answer. Since
-that verdict is noise and 5D's answer is not logically different from the twelve that failed, we fall back to the rubric
-ground truth and mark dashdish-8 fail for all 13 (5D's original judged verdict is preserved on disk). Accuracy therefore
-cannot separate the methods at all; the whole story is in performance.</p>
+<p class="note">Tasks passed of 12, deterministically re-graded. <b>Two grading problems, corrected separately.</b>
+First, dashdish-8 is a broken rubric: all 13 arms give the cuisine-carousel answer, and the rubric's ground-truth answer
+is the curated collection rows, which no arm produces. The single judged pass (5D) was re-evaluated to check consistency
+and came back <b>3 pass / 2 fail over 5 runs</b>, confirming the LLM judge is a coin flip on the identical answer, so we
+fall back to the rubric ground truth and mark dashdish-8 fail for all 13 (the original judged verdict is preserved on
+disk). Second, three tasks (zilloft-2, zilloft-5, zilloft-10) ask for an exact listing count, and the same judge disagreed
+with itself there too: reading every run's actual reported number against the rubric's stated correct count overturned
+<b>7 of the 39 arm&times;task verdicts on those three tasks alone, all of them false positives</b> (the grader passed a
+wrong count, never failed a right one). Every arm's score above is the corrected count. Accuracy still cannot separate
+the methods cleanly, the corrected range is a narrow 8 to 11 of 12, but it is no longer flat, and it is no longer
+trustworthy to read off the raw judged verdicts.</p>
 <div class="charttitle">Pass, slow, or fail <span class='sub'>every arm against every task</span></div>
 <div id="c_accgrid"></div>
 <p class="note"><b style="color:#0f8a5f">&#9679;</b> pass &nbsp; <b style="color:#ca8a04">&#9679;</b> passed but
 <b>slow for that arm</b> (a within-arm upper outlier: its time is a robust outlier against that arm's own task times,
 so it flags "this task underperformed here", independent of how long the task is elsewhere) &nbsp; <b style="color:#c13a2e">F</b> fail.
-The failures concentrate in three tasks: dashdish-8 (broken rubric, universal) and the location-mirage counts zilloft-5 /
-zilloft-10 (judged). The yellow marks vary by arm and are the more interesting signal: 4B's slow spot is zilloft-5 (not
-the usual marathon), 3D's is dashdish-10, and <b>5A has none</b> (uniformly efficient). Cold already solves everything
-solvable, so accuracy alone cannot separate the methods, but within-arm slowness can.</p>
+The failures concentrate in four tasks: dashdish-8 (broken rubric, universal) and the location-mirage counts zilloft-2 /
+zilloft-5 / zilloft-10 (grader-inconsistent; corrected against the rubric's ground-truth count, &sect;2 above). The yellow
+marks vary by arm and are the more interesting signal: 4B's slow spot is zilloft-5 (not the usual marathon), 3D's is
+dashdish-10, and <b>5A has none</b> (uniformly efficient). Cold does not solve everything solvable (it ties the floor at
+8/12), so accuracy separates the methods a little, but within-arm slowness is still the sharper signal.</p>
 <div class="charttitle">Accuracy per leg <span class='sub'>tasks passed of 12; one value per leg, toggle to focus</span></div>
 <div class="ctl" id="ov_acc_ctl"></div>
 <div id="c_dist_acc"></div>
 <p class="note">Accuracy is a single value per leg (a pass count of 12), not a per-task spread, so instead of a curve each
-selected leg is a dot on the score axis (ties stacked). The pile at <b>11/12</b> is the ceiling (7 of 13 legs) with a
-short left tail of degraded legs, <b>4A the lowest at 8</b>. Toggle legs to isolate. This flat-against-the-ceiling shape
-is why accuracy cannot separate the methods: the solvable set is capped.</p>
+selected leg is a dot on the score axis (ties stacked). The ceiling is <b>11/12</b> (4 of 13 legs: 2b, 3b, 5b, 6b) and the
+floor is <b>8/12</b>, tied four ways by all three cold baselines and 4a. Toggle legs to isolate. The spread is narrow
+enough (8 to 11) that accuracy separates the methods only weakly; the whole story is in performance.</p>
 </div>
 
 <h2>3 &middot; Performance</h2>
@@ -198,7 +255,7 @@ arm's win, where it has one, comes from the hard tasks.</p>
 <p class="note">Each curve is one leg's distribution over its 12 task times; toggle any legs to overlay them (the default
 shows a contrasting few, with a rug of the raw 12 points under each). The shapes diverge: cold is a moderate hump around
 one to two minutes; the <b>fork (4A) shifts far right and spreads wide</b>; the <b>warm-up (5D) is tight and pulled
-left</b>, the most concentrated; the <b>analysis mount (3D) carries a fat right tail</b> from its one blow-up. Pooled
+left</b>, the most concentrated; the <b>analysis mount (3D) carries a right tail</b> from one hard task (dashdish-10). Pooled
 across all 156 runs the median is 1.9 min, but the per-leg curves are where the methods actually separate.</p>
 <div class="charttitle">Consistency, per leg <span class='sub'>mean vs standard deviation of latency; distance from the line is the signal</span></div>
 <div id="c_reliability"></div>
@@ -209,10 +266,10 @@ fall out, and they revise the mean-only story. <b>The forks sit right on the lin
 consequence of their large mean (CV ~0.63, same as cold), so they are <i>uniformly</i> ~2x slow, predictable, not chaotic.
 On reliability the fork is not the villain. <b>The recipe and warm-up sit below the line</b> (5A at CV 0.49, 5D at 0.54):
 they tighten the relative spread, so run times cluster predictably, a reliability gain stacked on top of the speed gain.
-<b>3D sits far above it</b> (CV <b>1.07</b>, its SD exceeds its mean): the analysis mount is fast on most tasks but blows
-past 11 minutes on one, so its real danger is a heavy tail, not its average, exactly the kind of risk a mean hides. And
-this is one underlying leg property: an arm's latency CV and its turn CV correlate <b>+0.93</b>, a leg that is erratic in
-time is erratic in path length too.</p>
+<b>3D sits above it</b> (CV <b>0.90</b>): the analysis mount is fast on most tasks but still has a real tail, a
+dashdish-10 run runs 7.7 minutes against a ~1-3 minute norm elsewhere, so its risk is concentrated in a minority of
+tasks rather than spread evenly. And this is one underlying leg property: an arm's latency CV and its turn CV correlate
+<b>+0.93</b>, a leg that is erratic in time is erratic in path length too.</p>
 </div>
 
 <h2>4 &middot; The mechanism: context weight owns latency</h2>
@@ -324,16 +381,17 @@ path, cheap per turn, yet the agent spends extra steps because it has no in-wind
 <b>In-context forks</b> (red) break away to the top: the context tax strands them there regardless of turn count, 4A
 lands in the worst corner despite a near-best path. The asymmetry underneath it all: turns span just <b>1.7x</b> (24 to 40)
 while latency spans <b>2.7x</b> (21 to 57 minutes), so being a few turns more direct buys a little, but being context-heavy
-costs enormously. Only 3D sits outside its family, a mount whose latency was inflated by a single failed hard task. Judge
-a method on turns and latency separately; a good position on one axis is no guarantee on the other.</p>
+costs enormously. Judge a method on turns and latency separately; a good position on one axis is no guarantee on the
+other.</p>
 </div>
 
 <h2>7 &middot; Hypotheses, tested</h2>
 <div class="card">
 <p><span class="verdict v-yes">H1 SUPPORTED</span><strong>OCIC is at least as good as the official extension.</strong>
-Cold OCIC-Brave 11/12 in 23.4m; official CinC (setup-parity) 9/12 in 24.5m; OCIC-Chrome 9/12 in 26.5m. OCIC leads on
-accuracy and per-action latency (0.12s vs 0.27s median round-trip); whole-task time is a tie under setup parity. The
-big early gap was an unrepresentative old CinC run plus a setup-parity artifact, both corrected.</p>
+Cold OCIC-Brave, official CinC (setup-parity), and OCIC-Chrome all tie at 8/12 once the grader's inconsistent verdicts
+are corrected against ground truth (an earlier apparent OCIC-Brave accuracy edge was two flaky judge passes on wrong
+answers, &sect;2). OCIC leads on per-action latency (0.12s vs 0.27s median round-trip); whole-task time is a tie under
+setup parity. The big early gap was an unrepresentative old CinC run plus a setup-parity artifact, both corrected.</p>
 <p><span class="verdict v-no">H2 REFUTED</span><strong>Mounted prior experience improves a healthy harness.</strong>
 Raw mounts 9/12 and 11/12; analysis mounts 10/12 and 11/12; every mean within &plusmn;1 min/task of cold, records
 near-even. The agent barely opens the files, and the healthy harness leaves nothing for them to fix.</p>
@@ -344,7 +402,8 @@ The full forks are the worst arms in the benchmark: 8/12 and 10/12, +2-3 min/tas
 knowledge.</strong> Phase 5's atomic warm-up shrank the checkpoint 480k&rarr;92k and the fork flipped from worst arm to a
 tie with cold (11/12, +0.13 min/task). Exactly what the turn-latency law predicts.</p>
 <p><span class="verdict v-part">H5 SUPPORTED (narrowly)</span><strong>A cheap, non-distracting recipe can beat cold.</strong>
-The recipe alone is a wash (11/12, dead-even) because its fixed reading cost cancels its help on this easy-heavy suite.
+The recipe alone lands 10/12 and 11/12, at or above cold's 8/12, but its fixed reading cost cancels most of the time
+benefit on this easy-heavy suite.
 Combined with the atomic warm-up (5D), it is the first arm faster than cold: 20.9 vs 23.4m, faster on 7/12 tasks, the
 gains concentrated in the hard tasks, the difficulty effect paying off.</p>
 <div class="callout"><strong>The one-line conclusion.</strong> Knowledge never hurt and rarely helped; <em>delivery</em>
@@ -375,11 +434,13 @@ naive turns) 5D returns <b>~106 seconds</b>. The fork runs the other way (correl
 task, the deeper it sinks, because its per-turn context tax compounds over every additional turn. So the two families
 diverge with length, prompt-embedded expertise pays off increasingly, in-context history costs increasingly. This suite
 is only medium-length; the trend lines say the gap widens on anything longer.</p>
-<p class="note" style="margin-top:10px"><b>Accuracy does not scale, and the dataset is the reason.</b> Every arm lands at
-8 to 11 of 12, with cold already at 11/12 and no method exceeding it; the one unsolved task is a broken rubric, not a hard
-one. The suite sits at its accuracy ceiling, so it can measure <i>latency</i> gains from continual learning but cannot
-show <i>accuracy</i> gains. Whether these methods lift success on genuinely hard tasks is a question this data leaves open;
-it would need a harder, un-capped suite to answer.</p>
+<p class="note" style="margin-top:10px"><b>Accuracy does not scale much, and the dataset is the reason.</b> Every arm lands at
+8 to 11 of 12; cold sits at the floor (8/12, tied across all three baseline arms) and most later-phase arms sit a little
+above it, up to a 11/12 ceiling reached by four arms. The two things that keep any arm off a perfect score are a broken
+rubric (dashdish-8, universal) and, before correction, an inconsistent LLM judge on three count-based tasks (&sect;2).
+The suite sits near its accuracy ceiling either way, so it can measure <i>latency</i> gains from continual learning far
+more cleanly than <i>accuracy</i> gains. Whether these methods lift success on genuinely hard tasks is a question this
+data leaves open; it would need a harder, un-capped suite to answer.</p>
 </div>
 
 <h2>9 &middot; How each leg scales with difficulty</h2>
@@ -394,8 +455,7 @@ ask how that performance moves as difficulty rises.</p>
 (green) = the leg holds up or improves as tasks get harder; positive (red) = it degrades. The picture is unambiguous:
 the <b>forks are difficulty-fragile</b> (4A +0.44 min per difficulty point, Spearman +0.58; 4B +0.12/+0.44) because
 their per-turn context tax compounds with the extra turns hard tasks demand. Every <b>recipe / warm-up-recipe</b> leg is
-flat-to-negative (5D &minus;0.09, 5A/5B ~&minus;0.08): difficulty-robust. Mounts are flat; 3D's lone positive is one
-catastrophic hard task (zilloft-10), not a trend (Spearman &minus;0.08).</p>
+flat-to-negative (5D &minus;0.09, 5A/5B ~&minus;0.08): difficulty-robust. Mounts are largely flat overall.</p>
 <div class="ctl" id="sc_ctl"></div>
 <div class="charttitle">Performance versus difficulty <span class='sub'>per task and leg, with trends</span></div>
 <div id="c_diffscatter2"></div>
@@ -457,9 +517,12 @@ the forked-session theme balloons to ~365k and pays <b>+27 minutes</b>. <b>Two: 
 Turn count sits in a narrow band (25 to 40 across every theme) and correlates <b>0.00</b> with time; per-turn thinking is
 flat too (~130 to 170 output tokens). The warm-up takes the <i>fewest</i> turns (25) and the disk mounts the most (37),
 yet both land near cold, because what decides time is not how many turns or how hard each thinks, it is how much context
-each turn drags. <b>Three: accuracy is theme-invariant</b> (9.0 to 11.0 across every
-family): the delivery mechanism changes what the run costs, not what it can solve. The only two themes that beat cold,
-recipe and warm-up, are exactly the ones that deliver knowledge without loading the context window.</p>
+each turn drags. <b>Three: accuracy is theme-invariant, and cold is the outlier, not the ceiling.</b> Corrected against
+ground truth, cold sits lowest at 8.0/12 and every other theme sits at 9.0&ndash;10.5, a tight band with no separation
+between them; the delivery mechanism changes what the run costs, not what it can solve. (An earlier reading of this
+chart had cold artificially tied for the top on the strength of two flaky judge verdicts, &sect;2; corrected, the honest
+story is that <i>any</i> prior knowledge, regardless of delivery, edges out none at all, but recipe and warm-up do not
+distinctly outperform the disk-mount or fork themes on accuracy the way they do on time.)</p>
 <div class="charttitle">Where the time goes <span class='sub'>turns versus per-turn cost, by theme</span></div>
 <div id="c_theme"></div>
 <p class="note">Each dot is one arm placed by how it spends its time: turns (x) against real seconds per turn (y). Color is
@@ -523,8 +586,8 @@ function accChart(){{
   const w=1060,h=270,pl=40,pb=60,pt=20;const bw=Math.min(56,(w-pl-20)/A.length-8);
   const vmax=12;const Y=v=>h-pb-(h-pt-pb)*v/vmax;const s=sv(w,h);
   for(let g=0;g<=12;g+=3){{s.appendChild(E('line',{{x1:pl,y1:Y(g),x2:w-10,y2:Y(g),stroke:'#f3f2ee'}}));s.appendChild(E('text',{{x:pl-6,y:Y(g)+3,'text-anchor':'end','font-size':9,fill:'#8a929c'}},g))}}
-  s.appendChild(E('line',{{x1:pl,y1:Y(11),x2:w-10,y2:Y(11),stroke:'#c9c7c1','stroke-dasharray':'6 4','stroke-width':1.5}}));
-  s.appendChild(E('text',{{x:w-12,y:Y(11)-4,'text-anchor':'end','font-size':10,fill:'#8a929c'}},'cold 11/12'));
+  s.appendChild(E('line',{{x1:pl,y1:Y(COLD.passed),x2:w-10,y2:Y(COLD.passed),stroke:'#c9c7c1','stroke-dasharray':'6 4','stroke-width':1.5}}));
+  s.appendChild(E('text',{{x:w-12,y:Y(COLD.passed)-4,'text-anchor':'end','font-size':10,fill:'#8a929c'}},`cold ${{COLD.passed}}/12`));
   A.forEach((a,i)=>{{const x=pl+14+i*(bw+8),y=Y(a.passed);
     s.appendChild(tip(E('rect',{{x,y,width:bw,height:Y(0)-y,rx:3,fill:a.color}}),`${{a.label}}: ${{a.passed}}/12`));
     s.appendChild(E('text',{{x:x+bw/2,y:y-4,'text-anchor':'middle','font-size':11,'font-weight':700,fill:a.color}},a.passed));
@@ -877,8 +940,8 @@ function turnScale(){{
     s.appendChild(E('text',{{x:w-pr+52,y:ly+3.5,'font-size':9,fill:cc>0?'#0f8a5f':'#c13a2e'}},`${{cc>0?'+':''}}${{cc}}`));ly+=16;}});
   const hh=document.getElementById('c_turnscale');hh.innerHTML='';hh.appendChild(s);
 }}
-let LSsel=new Set(['5D','5A','4A']);
-let TSsel=new Set(['5D','5A','2B']);
+let LSsel=new Set(['6b','5b','4a']);
+let TSsel=new Set(['6b','5b','2b']);
 function scaleCtl(ctlId,sel,redraw){{
   const bar=document.getElementById(ctlId);bar.innerHTML='';
   D.dist_byleg.order.forEach(k=>{{const l=document.createElement('label');
@@ -970,9 +1033,9 @@ function rankScatter(){{
   s.appendChild(E('text',{{x:15,y:(pt+h-pb)/2,'font-size':10.5,fill:'#5b6571','text-anchor':'middle',transform:`rotate(-90 15 ${{(pt+h-pb)/2}})`}},'latency (minutes, suite)'));
   // discovered groupings: delivery mechanism carves the plane. Drawn behind the dots.
   const GROUPS=[
-    {{lab:'Prompt-embedded',sub:'recipe + warm-up: few turns, fast',col:'#0f8a5f',ms:['5A','5B','5C','5D'],lp:'above'}},
-    {{lab:'Cold + on-disk retrieval',sub:'cheap context, but a longer path',col:'#3f6ea8',ms:['OCIC-Br','OCIC-Ch','CinC','2A','2B','3C'],lp:'above'}},
-    {{lab:'In-context forks',sub:'context tax: slow at any turn count',col:'#c13a2e',ms:['4A','4B'],lp:'below'}}
+    {{lab:'Prompt-embedded',sub:'recipe + warm-up: few turns, fast',col:'#0f8a5f',ms:['5a','5b','6a','6b'],lp:'above'}},
+    {{lab:'Cold + on-disk retrieval',sub:'cheap context, but a longer path',col:'#3f6ea8',ms:['1c','1b','1a','2a','2b','3b'],lp:'above'}},
+    {{lab:'In-context forks',sub:'context tax: slow at any turn count',col:'#c13a2e',ms:['4a','4b'],lp:'below'}}
   ];
   const by={{}}; arms.forEach(a=>by[a.short]=a);
   GROUPS.forEach(g=>{{
@@ -985,8 +1048,6 @@ function rankScatter(){{
     s.appendChild(E('text',{{x:cx,y:ly,'text-anchor':'middle','font-size':10.5,'font-weight':700,fill:g.col}},g.lab));
     s.appendChild(E('text',{{x:cx,y:ly+11,'text-anchor':'middle','font-size':9,fill:'#5b6571'}},g.sub));
   }});
-  const d3=by['3D'];
-  if(d3) s.appendChild(E('text',{{x:X(d3.turns)-9,y:Y(d3.min)-7,'text-anchor':'end','font-size':9,'font-style':'italic',fill:'#8a929c'}},'3D: a mount pulled up by one failed hard task'));
   // arm dots
   arms.forEach(a=>{{const cx=X(a.turns),cy=Y(a.min);
     s.appendChild(tip(E('circle',{{cx,cy,r:5.5,fill:a.color,opacity:.9,stroke:'#fff','stroke-width':1.3}}),`${{a.short}}: ${{a.turns}} turns, ${{a.min}}m`));
@@ -995,7 +1056,7 @@ function rankScatter(){{
   const hh=document.getElementById('c_rankscatter');hh.innerHTML='';hh.appendChild(s);
 }}
 
-const OVsel={{lat:new Set(['OCIC-Br','4A','5D','3D']),turns:new Set(['OCIC-Br','5D','2B','4A']),acc:new Set(D.dist_byleg.order)}};
+const OVsel={{lat:new Set(['1c','4a','6b','3a']),turns:new Set(['1c','6b','2b','4a']),acc:new Set(D.dist_byleg.order)}};
 function ovCtl(kind,ctlId){{
   const B=D.dist_byleg,sel=OVsel[kind],bar=document.getElementById(ctlId);bar.innerHTML='';
   B.order.forEach(k=>{{const l=document.createElement('label');
