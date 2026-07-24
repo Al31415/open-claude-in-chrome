@@ -99,11 +99,15 @@ for g in [0, 1, 2, 3, 4, 5]:
     if g > xmax: continue
     s.append(f'<line x1="{X(g):.1f}" y1="{PT}" x2="{X(g):.1f}" y2="{H-PB}" stroke="#f2f1ed"/>')
     s.append(f'<text x="{X(g):.1f}" y="{H-PB+18}" text-anchor="middle" font-size="10" fill="#8a929c">{g}m</text>')
-for g in [0.5, 0.75, 1, 1.5, 2]:
-    if g < YLO or g > YHI: continue
+# geometric tick ladder (each step is exactly x sqrt(2)), so on this log
+# axis every gridline gap is the SAME number of pixels - equal gaps mean
+# equal ratios, which is the log-consistency the eye expects
+R2 = 2 ** 0.5
+for g, lab in [(0.5, "0.5"), (1 / R2, "0.71"), (1, "1"), (R2, "1.41"), (2, "2")]:
+    if g < YLO or g > YHI + 1e-9: continue
     hot = abs(g - 1) < 1e-9
     s.append(f'<line x1="{PL}" y1="{Y(g):.1f}" x2="{W-PR}" y2="{Y(g):.1f}" stroke="{"#c9c7c1" if hot else "#dedbd3"}" stroke-width="{1.6 if hot else 1}"/>')
-    s.append(f'<text x="{PL-8:.1f}" y="{Y(g)+3.5:.1f}" text-anchor="end" font-size="10" fill="#8a929c">{g:g}&#215;</text>')
+    s.append(f'<text x="{PL-8:.1f}" y="{Y(g)+3.5:.1f}" text-anchor="end" font-size="10" fill="#8a929c">{lab}&#215;</text>')
 s.append(f'<text x="{(PL+W-PR)/2:.1f}" y="{H-14}" text-anchor="middle" font-size="12" fill="#5b6571">baseline (cold) time for the task (minutes)</text>')
 s.append(f'<text x="18" y="{(PT+H-PB)/2:.1f}" text-anchor="middle" font-size="12" fill="#5b6571" transform="rotate(-90 18 {(PT+H-PB)/2:.1f})">task time / baseline time (log scale)</text>')
 

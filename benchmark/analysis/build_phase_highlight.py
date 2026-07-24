@@ -1,15 +1,24 @@
 #!/usr/bin/env python3
-"""Six cartoon-annotated variants of "the same arms in scalar space"
-(scalar_space.png / build_scalar_intro.py), one per phase, for the "Tying
-Them All Together" recap. Same base plot every time - same 13 dots in the
-same positions, same axes, same baseline crosshair - so the reader always has
-the full picture; only which arms are popped vs. faded, and a phase-specific
-hand-drawn-style overlay (arrows, lassos, callouts in one consistent "marker
-ink" colour), changes per phase. This is deliberately more playful than the
-rest of the deck's charts - big colour, a bit of swagger - because this
-section is a recap, not new evidence.
+"""Six annotated variants of "the same arms in scalar space", one per phase,
+for the "Tying Them All Together" recap. Same base plot every time (all 13
+arms, same axes, same baseline crosshair) so the reader always has the full
+picture; per phase, only which arms are popped vs. faded plus a small set of
+annotations changes.
 
-Run: python3 build_phase_highlight.py (builds all 6)."""
+Annotation system (deliberate, after a round of feedback):
+- MOVEMENT is the only thing arrows are used for, and every movement is
+  decomposed into its axis components, coordinate-space style: a horizontal
+  arrow (the turns delta) then a vertical arrow (the latency delta). Each
+  segment is coloured by its own direction: green = improving (left = fewer
+  turns, down = faster), muted red = worsening (right, up). Arrows stand off
+  from the dots (never touch them) - precision is secondary to legibility,
+  so near-overlapping parallels are stacked a few px apart instead.
+- POINTING is done by encircling, never by arrows: the capstone rankScatter's
+  exact grouping style (tinted dashed ellipse behind the dots, bold coloured
+  label + muted sublabel above/below).
+- Commentary text is neutral dark slate, not alarm-coloured.
+
+Chrome headless -> PNG. Run: python3 build_phase_highlight.py (builds all 6)."""
 import json, math, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -34,7 +43,12 @@ YMIN, YMAX = 17, 60
 def X(v): return PL + (W - PL - PR) * (v - XMIN) / (XMAX - XMIN)
 def Y(v): return PT + (H - PT - PB) * (YMAX - v) / (YMAX - YMIN)
 
-INK = "#e8491d"  # the one "cartoon marker" annotation colour, used nowhere else in the deck
+GOOD = "#0f8a5f"    # improving movement (left / down) - the deck's green
+BAD = "#c13a2e"     # worsening movement (right / up) - the deck's muted red
+NOTE = "#3a4148"    # commentary ink - neutral dark slate
+SUB = "#5b6571"     # secondary commentary
+GROUP_BLUE = "#3f6ea8"  # capstone rankScatter's neutral grouping blue
+STAND = 13          # px standoff between an arrow end and the dot it serves
 
 LBL = {
     "1a": (-11, -9, "end"), "1b": (10, -6, "start"), "1c": (10, 13, "start"),
@@ -52,44 +66,72 @@ def star(cx, cy, ro, ri, n=5):
         pts.append(f"{cx + r*math.cos(a):.2f},{cy + r*math.sin(a):.2f}")
     return "M" + "L".join(pts) + "Z"
 
-def straight_arrow(x0, y0, x1, y1, width=3.2, color=INK, dash=None):
+def arrow(x0, y0, x1, y1, color, width=3.2):
     ang = math.atan2(y1 - y0, x1 - x0)
-    ah = 10
+    ah = 9
     a1 = ang + math.radians(150); a2 = ang - math.radians(150)
     head = (f"M{x1:.1f} {y1:.1f} L{x1+ah*math.cos(a1):.1f} {y1+ah*math.sin(a1):.1f} "
             f"M{x1:.1f} {y1:.1f} L{x1+ah*math.cos(a2):.1f} {y1+ah*math.sin(a2):.1f}")
-    dasharr = f' stroke-dasharray="{dash}"' if dash else ""
     return (f'<line x1="{x0:.1f}" y1="{y0:.1f}" x2="{x1:.1f}" y2="{y1:.1f}" '
-            f'stroke="{color}" stroke-width="{width}" stroke-linecap="round"{dasharr}/>'
+            f'stroke="{color}" stroke-width="{width}" stroke-linecap="round"/>'
             f'<path d="{head}" stroke="{color}" stroke-width="{width}" stroke-linecap="round" fill="none"/>')
 
-def axis_arrows(x0, y0, x1, y1, width=3.2, color=INK):
-    """A movement decomposed into its axis components, coordinate-space style:
-    one horizontal arrow (the turns delta), then one vertical arrow (the
-    latency delta), meeting at the elbow (x1, y0). Segments shorter than a
-    few px are skipped rather than drawn as stubs."""
+def axis_arrows(x0, y0, x1, y1, width=3.2, row_shift=0.0, src_standoff=True, dst_standoff=STAND):
+    """One movement, decomposed: horizontal arrow (turns delta), then vertical
+    arrow (latency delta), each coloured by its own direction. row_shift nudges
+    the horizontal run vertically so two near-parallel movements can stack
+    instead of overlapping. Both ends stand clear of the dots."""
     out = []
-    if abs(x1 - x0) >= 8:
-        out.append(straight_arrow(x0, y0, x1, y0, width=width, color=color))
-    if abs(y1 - y0) >= 8:
-        out.append(straight_arrow(x1, y0, x1, y1, width=width, color=color))
+    yrow = y0 + row_shift
+    hx0 = x0
+    if abs(x1 - x0) >= 14:
+        hcol = GOOD if x1 < x0 else BAD
+        if src_standoff:
+            hx0 = x0 + (STAND if x1 > x0 else -STAND)
+        out.append(arrow(hx0, yrow, x1, yrow, hcol, width))
+    else:
+        yrow = y0 + (row_shift if abs(row_shift) > 0 else 0)
+    if abs(y1 - y0) >= 14:
+        vcol = GOOD if y1 > y0 else BAD  # screen-down = lower latency = good
+        vy0 = yrow
+        vy1 = y1 - (dst_standoff if y1 > y0 else -dst_standoff)
+        if abs(x1 - x0) < 14 and src_standoff:
+            vy0 = y0 + (STAND if y1 > y0 else -STAND)
+        out.append(arrow(x1, vy0, x1, vy1, vcol, width))
     return "".join(out)
 
-def wobble_circle(cx, cy, r, color=INK, width=2.6, wob=3, n=28, dash="1 0"):
-    pts = []
-    for i in range(n + 1):
-        a = 2 * math.pi * i / n
-        rr = r + (wob if i % 3 == 0 else -wob * 0.4 if i % 3 == 1 else 0)
-        pts.append((cx + rr * math.cos(a), cy + rr * math.sin(a)))
-    d = "M" + " ".join(f"{'L' if i else ''}{p[0]:.1f} {p[1]:.1f}" for i, p in enumerate(pts)) + " Z"
-    return f'<path d="{d}" fill="none" stroke="{color}" stroke-width="{width}" stroke-dasharray="{dash}" stroke-linejoin="round"/>'
+def group_ellipse(shorts, col, label, sub, lp="above", padx=30, pady=24, contain=False):
+    """The capstone rankScatter grouping style: tinted dashed ellipse fitted to
+    the member dots, bold coloured label + muted sublabel. contain=True scales
+    the radii until every member is strictly inside - right for small compact
+    groups; for wide flat packs the capstone's own loose fit (corner dots may
+    kiss the boundary) reads better than a blown-up enclosure."""
+    pts = [(X(BY[s]["turns"]), Y(BY[s]["min"])) for s in shorts]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    cx = (min(xs) + max(xs)) / 2; cy = (min(ys) + max(ys)) / 2
+    rx = (max(xs) - min(xs)) / 2 + padx; ry = (max(ys) - min(ys)) / 2 + pady
+    if contain:
+        kmax = max(math.hypot((px - cx) / rx, (py - cy) / ry) for px, py in pts)
+        scale = max(1.0, kmax * 1.06)
+        rx *= scale; ry *= scale
+    ly = cy - ry - 21 if lp == "above" else cy + ry + 16
+    out = [f'<ellipse cx="{cx:.1f}" cy="{cy:.1f}" rx="{rx:.1f}" ry="{ry:.1f}" '
+           f'fill="{col}" fill-opacity="0.06" stroke="{col}" stroke-width="1.4" stroke-dasharray="6 4"/>']
+    if label:
+        out.append(f'<text x="{cx:.1f}" y="{ly:.1f}" text-anchor="middle" font-size="12.5" font-weight="700" fill="{col}">{label}</text>')
+    if sub:
+        out.append(f'<text x="{cx:.1f}" y="{ly+15:.1f}" text-anchor="middle" font-size="10.5" fill="{SUB}">{sub}</text>')
+    return "".join(out)
 
-def note(x, y, text, size=13.5, rot=-2, anchor="start", weight=800, color=INK):
+def note(x, y, text, size=13.5, rot=-2, anchor="start", weight=800, color=NOTE):
     return (f'<text x="{x:.1f}" y="{y:.1f}" text-anchor="{anchor}" font-size="{size}" '
             f'font-weight="{weight}" font-style="italic" fill="{color}" '
             f'transform="rotate({rot} {x:.1f} {y:.1f})">{text}</text>')
 
-def base_chart(title, subtitle, highlight):
+def base_chart(title, subtitle, highlight, context=()):
+    """highlight: fully popped arms. context: mid-emphasis arms (visible dots +
+    small labels) so a claim about them has something to point at. The rest
+    fade to background."""
     s = []
     s.append(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" font-family="-apple-system,BlinkMacSystemFont,Segoe UI,Inter,sans-serif">')
     s.append(f'<rect x="0" y="0" width="{W}" height="{H}" fill="#ffffff"/>')
@@ -107,33 +149,26 @@ def base_chart(title, subtitle, highlight):
     s.append(f'<text x="24" y="{(PT+H-PB)/2:.1f}" text-anchor="middle" font-size="13" fill="#5b6571" transform="rotate(-90 24 {(PT+H-PB)/2:.1f})">latency (minutes, suite) &#8594; slower</text>')
     s.append(f'<text x="{PL}" y="34" font-size="18" font-weight="700" fill="#1b1f24">{title}</text>')
     s.append(f'<text x="{PL}" y="52" font-size="12.5" fill="#8a929c">{subtitle}</text>')
-
-    for a in ARMS:
-        sh = a["short"]
-        if sh == "6b" and "6b" not in highlight:
-            continue  # drawn later, starred
-        cx, cy = X(a["turns"]), Y(a["min"])
-        col = COLOR[sh]
-        on = sh in highlight
-        if on:
-            s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="7.5" fill="{col}" stroke="#fff" stroke-width="1.6"/>')
-            dx, dy, anc = LBL[sh]
-            s.append(f'<text x="{cx+dx:.1f}" y="{cy+dy:.1f}" text-anchor="{anc}" font-size="13" font-weight="800" fill="#1b1f24">{sh}</text>')
-        else:
-            s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="4.5" fill="{col}" opacity="0.28"/>')
-    if "6b" in highlight:
-        w6 = BY["6b"]; cx, cy = X(w6["turns"]), Y(w6["min"]); col = COLOR["6b"]
-        s.append(f'<path d="{star(cx, cy, 12, 5)}" fill="{col}" stroke="#7a3a00" stroke-width="1.3"/>')
-        dx, dy, anc = LBL["6b"]
-        s.append(f'<text x="{cx+dx:.1f}" y="{cy+dy:.1f}" text-anchor="{anc}" font-size="13" font-weight="800" fill="#1b1f24">6b</text>')
     return s
 
-def enclosing_circle(shorts, pad=16):
-    pts = [(X(BY[s]["turns"]), Y(BY[s]["min"])) for s in shorts]
-    cx = sum(p[0] for p in pts) / len(pts)
-    cy = sum(p[1] for p in pts) / len(pts)
-    r = max(math.hypot(p[0] - cx, p[1] - cy) for p in pts) + pad
-    return cx, cy, r
+def draw_arms(s, highlight, context=()):
+    """Dots go on top of ellipses/arrows; call after annotations."""
+    for a in ARMS:
+        sh = a["short"]
+        cx, cy = X(a["turns"]), Y(a["min"])
+        col = COLOR[sh]
+        dx, dy, anc = LBL[sh]
+        if sh == "6b" and sh in highlight:
+            s.append(f'<path d="{star(cx, cy, 12, 5)}" fill="{col}" stroke="#7a3a00" stroke-width="1.3"/>')
+            s.append(f'<text x="{cx+dx:.1f}" y="{cy+dy:.1f}" text-anchor="{anc}" font-size="13" font-weight="800" fill="#1b1f24">{sh}</text>')
+        elif sh in highlight:
+            s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="7.5" fill="{col}" stroke="#fff" stroke-width="1.6"/>')
+            s.append(f'<text x="{cx+dx:.1f}" y="{cy+dy:.1f}" text-anchor="{anc}" font-size="13" font-weight="800" fill="#1b1f24">{sh}</text>')
+        elif sh in context:
+            s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="5" fill="{col}" opacity="0.6" stroke="#fff" stroke-width="1"/>')
+            s.append(f'<text x="{cx+dx:.1f}" y="{cy+dy:.1f}" text-anchor="{anc}" font-size="9.5" font-weight="600" fill="{SUB}" opacity="0.85">{sh}</text>')
+        else:
+            s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="4.5" fill="{col}" opacity="0.28"/>')
 
 def finish(s, name):
     s.append('</svg>')
@@ -142,65 +177,80 @@ def finish(s, name):
         f'<!doctype html><meta charset="utf-8"><style>*{{margin:0}}body{{background:#fff}}</style>{svg}')
     print("wrote", name)
 
-# ---------- Phase 1: tight clustering ----------
-s = base_chart("Phase 1 · the control group", "official CinC vs. OCIC, cold - basically the same agent", ["1a", "1b", "1c"])
-cx, cy, r = enclosing_circle(P1)
-s.append(wobble_circle(cx, cy, r))
-s.append(note(cx + r + 14, cy - 12, "practically on top of each other", size=14))
-s.append(note(cx + r + 14, cy + 6, "harness swap barely moves the dot", size=11.5, weight=600, rot=-1))
+# ---------- Phase 1: the cold cluster, encircled the capstone way ----------
+s = base_chart("Phase 1 · the control group", "official CinC vs. OCIC, cold - basically the same agent", P1)
+s.append(group_ellipse(P1, GROUP_BLUE, "practically on top of each other",
+                       "harness swap barely moves the dot", lp="above"))
+draw_arms(s, P1)
 finish(s, "phase1_highlight")
 
-# ---------- Phase 2: 2a/2b, accuracy gain invisible on these axes ----------
-s = base_chart("Phase 2 · mounting raw experience", "2a saves latency, not turns; 2b saves neither - but both get more accurate", ["2a", "2b"])
-s.append(axis_arrows(X(bx), Y(by), X(BY["2a"]["turns"]), Y(BY["2a"]["min"])))
-s.append(axis_arrows(X(bx), Y(by), X(BY["2b"]["turns"]), Y(BY["2b"]["min"])))
+# ---------- Phase 2: baseline -> 2a / 2b; the two rightward runs stack ----------
+s = base_chart("Phase 2 · mounting raw experience",
+               "2a saves latency, not turns; 2b saves neither - but both get more accurate", ["2a", "2b"])
+s.append(axis_arrows(X(bx), Y(by), X(BY["2a"]["turns"]), Y(BY["2a"]["min"]), row_shift=+7, src_standoff=False))
+s.append(axis_arrows(X(bx), Y(by), X(BY["2b"]["turns"]), Y(BY["2b"]["min"]), row_shift=-7, src_standoff=False))
 cx, cy = X(BY["2b"]["turns"]), Y(BY["2b"]["min"])
 shaft_y = Y(by)
-s.append(note(cx - 20, shaft_y - 29, "2b got MORE ACCURATE", size=13, anchor="end", rot=2))
-s.append(note(cx - 20, shaft_y - 12, "you just can't see it on this chart", size=11, weight=600, anchor="end", rot=1))
+s.append(note(cx - 20, shaft_y - 31, "2b got MORE ACCURATE", size=13, anchor="end", rot=2))
+s.append(note(cx - 20, shaft_y - 14, "you just can't see it on this chart", size=11, weight=600, anchor="end", rot=1))
+draw_arms(s, ["2a", "2b"])
 finish(s, "phase2_highlight")
 
-# ---------- Phase 3: turns down for both, latency surprise ----------
-s = base_chart("Phase 3 · compressing the search tax", "turns drop for both - but 3a's latency doesn't beat 2a. plot twist.", ["2a", "2b", "3a", "3b"])
+# ---------- Phase 3: 2a->3a, 2b->3b; the 3a latency surprise ----------
+s = base_chart("Phase 3 · compressing the search tax",
+               "turns drop for both - but 3a's latency doesn't beat 2a. plot twist.", ["2a", "2b", "3a", "3b"])
 s.append(axis_arrows(X(BY["2a"]["turns"]), Y(BY["2a"]["min"]), X(BY["3a"]["turns"]), Y(BY["3a"]["min"])))
 s.append(axis_arrows(X(BY["2b"]["turns"]), Y(BY["2b"]["min"]), X(BY["3b"]["turns"]), Y(BY["3b"]["min"])))
 cx, cy = X(BY["3a"]["turns"]), Y(BY["3a"]["min"])
-s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="12" fill="none" stroke="{INK}" stroke-width="2.4"/>')
-s.append(note(cx - 18, cy + 46, "??? still worse than 2a on latency", size=13, anchor="end"))
-s.append(note(cx - 18, cy + 63, "fewer turns didn't buy back the time", size=11, weight=600, rot=-1, anchor="end"))
+s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="13" fill="none" stroke="{BAD}" stroke-width="1.6" stroke-dasharray="4 3"/>')
+s.append(note(cx - 24, cy + 48, "??? still worse than 2a on latency", size=13, anchor="end"))
+s.append(note(cx - 24, cy + 65, "fewer turns didn't buy back the time", size=11, weight=600, rot=-1, anchor="end"))
+draw_arms(s, ["2a", "2b", "3a", "3b"])
 finish(s, "phase3_highlight")
 
-# ---------- Phase 4: latency explosion ----------
-s = base_chart("Phase 4 · forking the whole session in", "context explodes, latency follows - turns barely move to compensate", ["3a", "3b", "4a", "4b"])
-s.append(axis_arrows(X(BY["3a"]["turns"]), Y(BY["3a"]["min"]), X(BY["4a"]["turns"]), Y(BY["4a"]["min"]), width=4.4))
-s.append(axis_arrows(X(BY["3b"]["turns"]), Y(BY["3b"]["min"]), X(BY["4b"]["turns"]), Y(BY["4b"]["min"]), width=4.4))
+# ---------- Phase 4: 3a->4a, 3b->4b; the context tax, in red ----------
+s = base_chart("Phase 4 · forking the whole session in",
+               "context explodes, latency follows - turns barely move to compensate", ["3a", "3b", "4a", "4b"])
+s.append(axis_arrows(X(BY["3a"]["turns"]), Y(BY["3a"]["min"]), X(BY["4a"]["turns"]), Y(BY["4a"]["min"]), width=4))
+s.append(axis_arrows(X(BY["3b"]["turns"]), Y(BY["3b"]["min"]), X(BY["4b"]["turns"]), Y(BY["4b"]["min"]), width=4))
 cx, cy = X(BY["4a"]["turns"]), Y(BY["4a"]["min"])
-s.append(note(cx - 6, cy - 18, "latency goes THROUGH THE ROOF", size=16, anchor="middle", rot=-2))
-s.append(note(cx - 16, cy + 34, "turns: only a little better.", size=11.5, weight=600, anchor="end", rot=1))
-s.append(note(cx - 16, cy + 49, "not worth it.", size=11.5, weight=600, anchor="end", rot=1))
+s.append(note(cx - 6, cy - 20, "latency goes THROUGH THE ROOF", size=16, anchor="middle", rot=-2))
+s.append(note(cx - 22, cy + 36, "turns: only a little better.", size=11.5, weight=600, anchor="end", rot=1))
+s.append(note(cx - 22, cy + 51, "not worth it.", size=11.5, weight=600, anchor="end", rot=1))
+draw_arms(s, ["3a", "3b", "4a", "4b"])
 finish(s, "phase4_highlight")
 
-# ---------- Phase 5: recipe, both improve equally, negligible diff, and both
-# ahead of every arm from phases 1-4 ----------
-s = base_chart("Phase 5 · ditch the workspace, prompt a recipe", "biggest jump yet, and 5a vs. 5b barely matters", ["5a", "5b"])
-cx, cy, r = enclosing_circle(["5a", "5b"], pad=18)
-s.append(f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:.1f}" fill="none" stroke="{INK}" stroke-width="2.4"/>')
-s.append(note(cx - r - 14, cy - 40, "same dot, basically", size=14, anchor="end"))
-s.append(note(cx - r - 14, cy - 23, "single vs. per-site recipe = a wash", size=11, weight=600, rot=-1, anchor="end"))
-s.append(straight_arrow(cx - r - 16, cy - 32, cx - r * 0.75, cy - r * 0.75, width=2.2))
-s.append(note(cx, cy + r + 26, "and this beats EVERY arm from phases 1-4", size=13.5, anchor="middle"))
-s.append(note(cx, cy + r + 43, "the whole rest of the field is up and to the right", size=11, weight=600, rot=-1, anchor="middle"))
+# ---------- Phase 5: recipes vs the entire prior field ----------
+# The prior field is enclosed as the capstone's own two natural groups (one
+# bbox ellipse over this L-shaped spread would either clip its corners or
+# swallow the recipes): the compact phases-1-3 pack, and the two phase-4
+# forks stranded above it.
+PACK = ["1a", "1b", "1c", "2a", "2b", "3a", "3b"]
+FORKS = ["4a", "4b"]
+s = base_chart("Phase 5 · ditch the workspace, prompt a recipe",
+               "biggest jump yet - and single vs. per-site recipe barely matters", ["5a", "5b"], context=PACK + FORKS)
+s.append(group_ellipse(PACK, GROUP_BLUE, "everything from phases 1-3",
+                       "the whole pack sits up and to the right", lp="below", padx=26, pady=20))
+s.append(group_ellipse(FORKS, BAD, "the phase-4 forks", "stranded by the context tax", lp="below", padx=26, pady=20, contain=True))
+s.append(group_ellipse(["5a", "5b"], GOOD, "", "", padx=16, pady=14, contain=True))
+gx = (X(BY["5a"]["turns"]) + X(BY["5b"]["turns"])) / 2
+gy = (Y(BY["5a"]["min"]) + Y(BY["5b"]["min"])) / 2
+s.append(note(gx - 44, gy - 4, "same dot, basically", size=13, anchor="end"))
+s.append(note(gx - 44, gy + 13, "and it beats all of them", size=11, weight=600, rot=-1, anchor="end"))
+draw_arms(s, ["5a", "5b"], context=PACK + FORKS)
 finish(s, "phase5_highlight")
 
-# ---------- Phase 6: 6a matches 4a's turns for a fraction of the latency; 6b beats both axes ----------
-s = base_chart("Phase 6 · does warming up alone pay off?", "6a alone matches 4a's turn savings for a THIRD of the latency tax. then 6b stacks the recipe on top.", ["4a", "6a", "6b"])
-s.append(axis_arrows(X(BY["4a"]["turns"]), Y(BY["4a"]["min"]), X(BY["6a"]["turns"]), Y(BY["6a"]["min"]), width=4.6))
+# ---------- Phase 6: 4a -> 6a (the shocker), then 6a -> 6b (the winner) ----------
+s = base_chart("Phase 6 · does warming up alone pay off?",
+               "6a alone matches 4a's turn savings for a THIRD of the latency tax. then 6b stacks the recipe on top.", ["4a", "6a", "6b"])
+s.append(axis_arrows(X(BY["4a"]["turns"]), Y(BY["4a"]["min"]), X(BY["6a"]["turns"]), Y(BY["6a"]["min"]), width=4))
 cx, cy = X(BY["6a"]["turns"]), Y(BY["6a"]["min"])
 midy = (Y(BY["4a"]["min"]) + cy) / 2
-s.append(note(cx + 24, midy - 8, "wait, WHAT", size=15))
-s.append(note(cx + 24, midy + 9, "1 warm-up example &#8776; the whole fork's turn savings", size=11, weight=600, rot=-1))
-s.append(axis_arrows(cx, cy, X(BY["6b"]["turns"]), Y(BY["6b"]["min"]), width=3.4))
-s.append(note(PL + 16, cy - 16, "and 6b just wins outright", size=12.5, rot=-2))
+s.append(note(cx + 26, midy - 8, "wait, WHAT", size=15))
+s.append(note(cx + 26, midy + 9, "1 warm-up example &#8776; the whole fork's turn savings", size=11, weight=600, rot=-1))
+s.append(axis_arrows(cx, cy, X(BY["6b"]["turns"]), Y(BY["6b"]["min"]), width=3.4, dst_standoff=17))
+s.append(note(PL + 16, cy - 18, "and 6b just wins outright", size=12.5, rot=-2))
+draw_arms(s, ["4a", "6a", "6b"])
 finish(s, "phase6_highlight")
 
 print("all 6 written")

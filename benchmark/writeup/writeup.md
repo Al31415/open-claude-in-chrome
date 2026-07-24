@@ -270,8 +270,8 @@ Even with the validation behavior the turn improvements are trending toward impr
 There is also another interesting trend when you observe the turn saving with respect to the task length. The longer the task the more turn saving is observed.
 
 <figure style="text-align:center;margin:1.5em auto">
-<img style="max-width:100%;width:960px" src="images/turns_ratio_decay.png" alt="Task turns as a multiple of cold, log y-axis: pooled experiential and expert averages across phases 2-4, plus 5b, 6a, and 6b">
-<figcaption style="max-width:680px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Each arm's own task turns divided by baseline (cold) task turns for the same task (log y-axis), plotted against baseline (cold) turns (linear x-axis). Horizontal line is 1&times; (equal to cold). Dashed = pooled source fit, ln(ratio) &#126; baseline turns (experiential: 2a+3a+4a, expert: 2b+3b+4b, n=36 each); solid = single-arm fit (5b, 6a, 6b, n=12). Ticks along the top edge mark points above 1.8&times;, off scale.</figcaption>
+<img style="max-width:100%;width:960px" src="images/turns_ratio_decay.png" alt="Task turns as a multiple of cold: pooled experiential and expert averages across phases 2-4, plus 5b, 6a, and 6b">
+<figcaption style="max-width:680px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Each arm's own task turns divided by baseline (cold) task turns for the same task, plotted against baseline (cold) turns. Horizontal line is 1&times; (equal to cold). Dashed = pooled source fit, ln(ratio) &#126; baseline turns (experiential: 2a+3a+4a, expert: 2b+3b+4b, n=36 each); solid = single-arm fit (5b, 6a, 6b, n=12). Ticks along the top edge mark points above 2&times;, off scale.</figcaption>
 </figure>
 
 As you can see in the figure above the the y axis is set as a multiple of the baseline on every task.
@@ -296,8 +296,8 @@ The key factor that did prove to be effective across all arms was appending anal
 Similar to multiplier analysis of turn count above below is an analysis of the task time as a multiple of the baseline task time.
 
 <figure style="text-align:center;margin:1.5em auto">
-<img style="max-width:100%;width:960px" src="images/ratio_decay.png" alt="Task time as a multiple of cold, log y-axis: pooled experiential and expert averages across phases 2-4, plus 5b, 6a, and 6b">
-<figcaption style="max-width:680px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Each arm's own task time divided by baseline (cold) task time for the same task (log y-axis), plotted against baseline (cold) task time in minutes (linear x-axis, average of 1a/1b/1c). Horizontal line is 1&times; (equal to cold). Dashed = pooled source fit, ln(ratio) &#126; baseline minutes (experiential: 2a+3a+4a, expert: 2b+3b+4b, n=36 each); solid = single-arm fit (5b, 6a, 6b, n=12). Ticks along the top edge mark points above 2.5&times;, off scale.</figcaption>
+<img style="max-width:100%;width:960px" src="images/ratio_decay.png" alt="Task time as a multiple of cold: pooled experiential and expert averages across phases 2-4, plus 5b, 6a, and 6b">
+<figcaption style="max-width:680px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Each arm's own task time divided by baseline (cold) task time for the same task, plotted against baseline (cold) task time in minutes (average of 1a/1b/1c). Horizontal line is 1&times; (equal to cold). Dashed = pooled source fit, ln(ratio) &#126; baseline minutes (experiential: 2a+3a+4a, expert: 2b+3b+4b, n=36 each); solid = single-arm fit (5b, 6a, 6b, n=12). Ticks along the top edge mark points above 2&times;, off scale.</figcaption>
 </figure>
 
 Latency from this system can be attributed to two parts: model inference and harness overhead. Harness overhead, the program execution and the network round-trips a tool call makes through the harness, is a marginal contributor to per-turn latency (screenshots aside, where render cost can be significant). The dominant contributor is model inference itself.
@@ -319,8 +319,8 @@ Anthropic's API redacts thinking content from `usage.output_tokens` so the think
 </figure>
 
 <figure style="text-align:center;margin:1.5em auto">
-<img style="max-width:100%;width:960px" src="images/thinking_ratio_decay.png" alt="Thinking tokens as a multiple of cold, log y-axis: pooled experiential and expert averages across phases 2-4, plus 5b, 6a, and 6b">
-<figcaption style="max-width:680px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Each arm's own estimated total thinking tokens for a task divided by baseline (cold) thinking tokens for the same task (log y-axis), plotted against baseline thinking tokens in thousands (linear x-axis, average of 1a/1b/1c). Horizontal line is 1&times; (equal to cold). Dashed = pooled source fit, ln(ratio) &#126; baseline k-tokens (experiential: 2a+3a+4a, expert: 2b+3b+4b, n=36 each); solid = single-arm fit (5b, 6a, 6b, n=12). Ticks along the top edge mark points above 2.5&times;, off scale.</figcaption>
+<img style="max-width:100%;width:960px" src="images/thinking_ratio_decay.png" alt="Thinking tokens as a multiple of cold: pooled experiential and expert averages across phases 2-4, plus 5b, 6a, and 6b">
+<figcaption style="max-width:680px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Each arm's own estimated total thinking tokens for a task divided by baseline (cold) thinking tokens for the same task, plotted against baseline thinking tokens in thousands (average of 1a/1b/1c). Horizontal line is 1&times; (equal to cold). Dashed = pooled source fit, ln(ratio) &#126; baseline k-tokens (experiential: 2a+3a+4a, expert: 2b+3b+4b, n=36 each); solid = single-arm fit (5b, 6a, 6b, n=12). Ticks along the top edge mark points above 2&times;, off scale.</figcaption>
 </figure>
 
 From the above multiplier analysis you will notice that it has a similar profile as the wall-time latency with a key difference being the added latency of token generation incurred by larger context sizes.
@@ -424,7 +424,7 @@ This distinction had no influence on outcomes.
 
 <figure style="text-align:center;margin:1.5em auto">
 <img style="max-width:100%;width:880px" src="images/phase5_highlight.png" alt="Scalar space chart with 5a and 5b highlighted, circled together to show how close the single-recipe and per-site-recipe variants land to each other">
-<figcaption style="max-width:640px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Same scalar-space plot; 5a/5b popped and circled together - the two land close enough to be indistinguishable at this scale.</figcaption>
+<figcaption style="max-width:640px;margin:0.6em auto 0;font-size:13px;font-style:italic;color:#6b675e;line-height:1.5">Same scalar-space plot; 5a/5b popped and ringed together (the two land close enough to be indistinguishable at this scale), with every prior arm shown mid-emphasis for context, grouped capstone-style: the phases-1-3 pack and the phase-4 forks.</figcaption>
 </figure>
 
 ### Phase 6
