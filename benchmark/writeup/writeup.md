@@ -188,10 +188,10 @@ OCIC running in the Brave Browser with a single prior experience trajectory load
 
 <p align="center"><img src="../analysis/img/leg_5c_medium.png" alt="6a: OCIC x Brave x Single Experiential (context)" height="220"></p>
 
-##### 6b: OCIC x Brave x Single Analysis Embedded Task x Single Experiential (context)
-OCIC running in the Brave Browser with a single analysis artifact embedded into the task prompt and a single prior experience trajectory loaded into context naively by continuing the Claude session.
+##### 6b: OCIC x Brave x Dynamic Analysis Embedded Task x Single Experiential (context)
+OCIC running in the Brave Browser with two site-specific analysis artefacts (one per site, paired with the matching task's site) embedded into the task prompt, and a single prior experience trajectory loaded into context naively by continuing the Claude session.
 
-<p align="center"><img src="../analysis/img/leg_5d_medium.png" alt="6b: OCIC x Brave x Single Analysis Embedded + Single Experiential (context)" height="220"></p>
+<p align="center"><img src="../analysis/img/leg_5d_medium.png" alt="6b: OCIC x Brave x Dynamic Analysis Embedded + Single Experiential (context)" height="220"></p>
 
 ## Results
 There were 3 major axis we are measuring against: latency, turns per task, and correctness.
