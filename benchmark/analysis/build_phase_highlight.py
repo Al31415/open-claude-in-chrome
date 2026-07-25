@@ -177,11 +177,19 @@ def finish(s, name):
         f'<!doctype html><meta charset="utf-8"><style>*{{margin:0}}body{{background:#fff}}</style>{svg}')
     print("wrote", name)
 
-# ---------- Phase 1: the cold cluster, encircled the capstone way ----------
-s = base_chart("Phase 1 · the control group", "official CinC vs. OCIC, cold - basically the same agent", P1)
-s.append(group_ellipse(P1, GROUP_BLUE, "practically on top of each other",
-                       "harness swap barely moves the dot", lp="above"))
-draw_arms(s, P1)
+# ---------- Phase 1: each harness's top performer, encircled ----------
+# 1a (official CinC) vs 1c (open harness, primary baseline): comparable turns
+# and 1c is actually faster. 1b (the open harness on Chrome) sits outside the
+# ring at context emphasis with a note, so it reads as a variant, not a
+# counterexample.
+s = base_chart("Phase 1 · the control group",
+               "each harness's best cold run: official (1a) vs. open (1c) - comparable turns, and 1c is faster", ["1a", "1c"], context=["1b"])
+s.append(group_ellipse(["1a", "1c"], GROUP_BLUE, "practically the same performance",
+                       "official harness (1a) vs. the open one (1c) - and 1c has the better latency",
+                       lp="below", padx=18, pady=16, contain=True))
+bx1, by1 = X(BY["1b"]["turns"]), Y(BY["1b"]["min"])
+s.append(note(bx1 + 14, by1 + 18, "1b is the open harness too, just on Chrome", size=10.5, weight=600, rot=-1))
+draw_arms(s, ["1a", "1c"], context=["1b"])
 finish(s, "phase1_highlight")
 
 # ---------- Phase 2: baseline -> 2a / 2b; the two rightward runs stack ----------

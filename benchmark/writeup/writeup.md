@@ -348,9 +348,9 @@ The first phase showcased the parity of performance between Claude in Chrome and
 
 
 <p align="center">
-<img src="images/phase1_highlight.png" alt="Scalar space chart with 1a, 1b, and 1c highlighted, annotated to show how tightly clustered the three baseline arms are" width="760">
+<img src="images/phase1_highlight.png" alt="Scalar space chart with 1a and 1c ringed together to show comparable performance between the official and open harness, with 1c faster on latency; 1b shown at reduced emphasis with a note that it is the open harness on Chrome" width="760">
 </p>
-<p align="center"><sub><em>Same scalar-space plot as above (all 13 arms, turns vs. latency); 1a/1b/1c popped, everything else faded.</em></sub></p>
+<p align="center"><sub><em>Same scalar-space plot as above (all 13 arms, turns vs. latency); each harness's best cold run ringed: 1a (official CinC) and 1c (open harness on Brave, the primary baseline), with 1c ahead on latency. 1b, shown at reduced emphasis, is the open harness as well, on Chrome.</em></sub></p>
 
 ### Phase 2
 | <img src="../analysis/img/leg_2a_medium.png" width="120"> | <img src="../analysis/img/leg_2b_medium.png" width="120"> |
