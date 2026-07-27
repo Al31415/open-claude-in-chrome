@@ -8,6 +8,7 @@ import http from "node:http";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
@@ -194,6 +195,36 @@ export async function startWorkerd({ variant } = {}) {
     os.tmpdir(),
     `oc-wrangler-${variantTag}-${process.pid}`
   );
+  // Prefer invoking wrangler's real CLI entrypoint directly (node
+  // <worker>/node_modules/wrangler/bin/wrangler.js) instead of going through
+  // `npx wrangler`. npx resolves "wrangler" via node_modules/.bin, and that
+  // shim is normally an npm-created symlink into node_modules/wrangler/bin —
+  // but it comes back as a plain copied file (not a symlink) whenever
+  // node_modules was populated by something that dereferences symlinks
+  // (an archive extraction, a naive directory copy/sync, etc.), and a copied
+  // wrangler.js resolves its own `../wrangler-dist/cli.js` one directory too
+  // shallow and crashes with MODULE_NOT_FOUND before wrangler ever starts.
+  // Spawning the real file directly with `node` sidesteps .bin entirely, so
+  // execute_code keeps working regardless of how node_modules/.bin ended up
+  // in whatever state it's in. Falls back to `npx wrangler` if the expected
+  // path isn't there (e.g. a future wrangler major changes the layout).
+  const directWranglerBin = path.join(
+    WORKER_DIR,
+    "node_modules",
+    "wrangler",
+    "bin",
+    "wrangler.js"
+  );
+  const useDirectBin = existsSync(directWranglerBin);
+  const wranglerArgs = [
+    "dev",
+    "--port",
+    String(port),
+    "--ip",
+    "127.0.0.1",
+    "--persist-to",
+    persistTo
+  ];
   // npx is a plain executable on macOS/Linux but a `.cmd` shim on Windows,
   // which Node's spawn can't launch directly (ENOENT for "npx", EINVAL for
   // "npx.cmd" since the CVE-2024-27980 fix) — so Windows goes through the
@@ -205,7 +236,9 @@ export async function startWorkerd({ variant } = {}) {
   const spawnEnv = { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" };
   const proc = isWindows
     ? spawn(
-        `npx --yes wrangler dev --port ${port} --ip 127.0.0.1 --persist-to "${persistTo}"`,
+        useDirectBin
+          ? `node "${directWranglerBin}" ${wranglerArgs.map((a) => `"${a}"`).join(" ")}`
+          : `npx --yes wrangler dev --port ${port} --ip 127.0.0.1 --persist-to "${persistTo}"`,
         {
           cwd: WORKER_DIR,
           stdio: ["ignore", "pipe", "pipe"],
@@ -214,18 +247,10 @@ export async function startWorkerd({ variant } = {}) {
         }
       )
     : spawn(
-        "npx",
-        [
-          "--yes",
-          "wrangler",
-          "dev",
-          "--port",
-          String(port),
-          "--ip",
-          "127.0.0.1",
-          "--persist-to",
-          persistTo
-        ],
+        useDirectBin ? process.execPath : "npx",
+        useDirectBin
+          ? [directWranglerBin, ...wranglerArgs]
+          : ["--yes", "wrangler", ...wranglerArgs],
         {
           cwd: WORKER_DIR,
           stdio: ["ignore", "pipe", "pipe"],
@@ -367,6 +392,7 @@ export function buildExecuteCodeDescription({ apiBlock, namespace, extraNotes })
 
 ## How to write it
 - One async arrow body that returns the value you need to see at the end. No TypeScript, no named functions; write it inline.
+- Every \`${namespace}.<tool>()\` call resolves to that tool's raw return value — never wrapped. \`javascript_exec\` resolves straight to the evaluated expression (no \`.result\`); \`find\` resolves straight to its own array (no assumed field like \`.elements\`). The types below show \`Output = unknown\` because shapes vary by tool; if unsure, probe with a trivial call (e.g. \`await ${namespace}.javascript_tool({..., text: "1+1"})\`) before relying on a field name.
 - Wait with \`${namespace}.computer({ action: "wait", duration: <seconds>, tabId })\`, never \`setTimeout\` (the sandbox rejects it). Prefer waiting on a condition (poll that an element is ready, read a value back to confirm) over a fixed delay; a fixed wait fires too early on a slow render and the action is lost.
 - Locate a target by purpose with \`${namespace}.find(...)\` when it may have moved; the returned \`ref\` works anywhere a \`coordinate\` does. When the page has not changed since you stepped it, replay the exact actions you just used.
 - End a batch at the first step that depends on what the page did, returning the value (from \`${namespace}.get_page_text(...)\`, \`${namespace}.find(...)\`, or a small query) you need to decide the next step.
