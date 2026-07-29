@@ -176,6 +176,37 @@ def _phase3_silent_header(prior):
 OCIC_EXPERT_CODE_HEADER = _phase3_header(_PRIOR_EXPERT)
 OCIC_ANALYZED_CODE_HEADER = _phase3_header(_PRIOR_EXPERT_ANALYZED)
 OCIC_ANALYZED_SILENT_HEADER = _phase3_silent_header(_PRIOR_EXPERT_ANALYZED)
+
+# ---- Phase 7 prior blocks: same phase-3 regime, one per recording system.
+# Deliberately parallel in structure and length so the ONLY prompt difference
+# is what the underlying source material actually is; the analysis filename
+# and the read-this-first instruction are identical in both.
+_PRIOR_OCIC_NEW_ANALYZED = """Prior experience: an expert operator was recorded completing several similar
+tasks in THIS SAME environment, and those recordings have ALREADY been analyzed
+for you. On disk at ./experience/ you will find:
+- ANALYSIS_dashdish.md and ANALYSIS_zilloft.md: compressed per-site insights
+  (page map, which controls are real vs decorative, search and filter
+  mechanics, recipes, gotchas). Read the one for your task's site FIRST; it is
+  intended to be sufficient on its own.
+- The raw recordings (one folder per task: trace.json + SCHEMA_v0.md +
+  images/), only if you need to verify a detail.
+Read ./experience/README.md and the relevant ANALYSIS file BEFORE you start
+clicking, then act."""
+
+_PRIOR_COWORK_ANALYZED = """Prior experience: an expert operator was recorded completing several similar
+tasks in THIS SAME environment, and those recordings have ALREADY been analyzed
+for you. On disk at ./experience/ you will find:
+- ANALYSIS_dashdish.md and ANALYSIS_zilloft.md: compressed per-site insights
+  (page map, which controls are real vs decorative, search and filter
+  mechanics, recipes, gotchas). Read the one for your task's site FIRST; it is
+  intended to be sufficient on its own.
+- The per-task artifacts the recording system generated (one markdown file per
+  task), only if you need to verify a detail.
+Read ./experience/README.md and the relevant ANALYSIS file BEFORE you start
+clicking, then act."""
+
+OCIC_NEW_ANALYZED_SILENT_HEADER = _phase3_silent_header(_PRIOR_OCIC_NEW_ANALYZED)
+COWORK_ANALYZED_SILENT_HEADER = _phase3_silent_header(_PRIOR_COWORK_ANALYZED)
 # Experiential twin of the analyzed-silent header: same silent (no execute_code
 # mention) phase-3 prompt, but the prior block points at analysis distilled from
 # the agent's OWN past runs rather than the expert recordings.
@@ -356,6 +387,10 @@ of what you did)."""
 # 5C forks a website-matched single-task warm-up checkpoint (silent header,
 # phase-4 convention). 5D = 5C's fork + 5A's site recipe.
 RECIPES_DIR = os.path.join(BENCH, "environments", "recipes")
+# Phase 7 recipe sets: same site routing as 5b/6b, one set per recording
+# system, each authored from that system's material only.
+RECIPES_DIR_OCIC_NEW = os.path.join(BENCH, "environments", "recipes_ocic_new")
+RECIPES_DIR_COWORK = os.path.join(BENCH, "environments", "recipes_cowork")
 
 _P5_RECIPE_BLOCK = """Field notes for {app_name}, compiled by an earlier agent from prior runs on
 similar tasks in this same app (use what helps; ignore what does not):
@@ -373,11 +408,13 @@ P5D_FORK_RECIPE_HEADER = P5_FORK_HEADER.replace(
     "logged in).\n\nPrior experience:",
     "logged in).\n\n" + _P5_RECIPE_BLOCK + "\n\nPrior experience:")
 
-def load_recipe(kind, app):
+def load_recipe(kind, app, recipe_dir=None):
     """kind: site|single. Site recipes are RECIPE_<app>.md; single is
-    RECIPE_combined.md. Authored by the isolated generator; read-only here."""
+    RECIPE_combined.md. Authored by the isolated generator; read-only here.
+    recipe_dir overrides RECIPES_DIR so an arm can carry its own recipe set
+    (phase 7 runs one recipe set per recording system, same site routing)."""
     name = "RECIPE_combined.md" if kind == "single" else "RECIPE_%s.md" % app
-    with open(os.path.join(RECIPES_DIR, name)) as f:
+    with open(os.path.join(recipe_dir or RECIPES_DIR, name)) as f:
         return f.read().strip()
 
 EXPERIMENTS = {
@@ -521,6 +558,40 @@ EXPERIMENTS = {
         "claude_args": [], "execute_code_allowed": True, "p5route": True,
         "recipe": "site",
     },
+    # ---- Phase 7: recording-system comparison (OCIC raw vs cowork artifacts).
+    # Both systems captured the SAME six train sessions simultaneously, so the
+    # underlying events are held constant and only the representation differs.
+    # 7A/7B replay the phase-3 regime (analysis + sources mounted on disk);
+    # 7C/7D replay the 5b regime (site-routed recipe spliced into the prompt).
+    # Within each pair the header, flags and delivery are identical.
+    "exp7a-ocic-analysis": {
+        "system": "ocic", "split": "test_order", "header": OCIC_NEW_ANALYZED_SILENT_HEADER,
+        "claude_args": [], "execute_code_allowed": True,
+        "experience": "ocic_new_analyzed",
+    },
+    "exp7b-cowork-analysis": {
+        "system": "ocic", "split": "test_order", "header": COWORK_ANALYZED_SILENT_HEADER,
+        "claude_args": [], "execute_code_allowed": True,
+        "experience": "cowork_analyzed",
+    },
+    "exp7c-ocic-recipe": {
+        "system": "ocic", "split": "test_order", "header": P5_RECIPE_HEADER,
+        "claude_args": [], "execute_code_allowed": False,
+        "recipe": "site", "recipe_dir": RECIPES_DIR_OCIC_NEW,
+    },
+    "exp7d-cowork-recipe": {
+        "system": "ocic", "split": "test_order", "header": P5_RECIPE_HEADER,
+        "claude_args": [], "execute_code_allowed": False,
+        "recipe": "site", "recipe_dir": RECIPES_DIR_COWORK,
+    },
+    # 7E = 6b's exact design (same warm-up checkpoints, same fork routing, same
+    # header) with ONLY the recipe swapped for the phase-7 OCIC one. Isolates
+    # the recipe's contribution against the study's winning arm.
+    "exp7e-ocic-warmup-recipe": {
+        "system": "ocic", "split": "test_order", "header": P5D_FORK_RECIPE_HEADER,
+        "claude_args": [], "execute_code_allowed": True, "p5route": True,
+        "recipe": "site", "recipe_dir": RECIPES_DIR_OCIC_NEW,
+    },
 }
 
 # Phase-2 experience sources (built from phase-1 train runs / operator demos).
@@ -530,6 +601,14 @@ ENV_EXPERIENTIAL = os.path.join(BENCH, "environments", "experiential", "mounted"
 ENV_EXPERT = os.path.join(BENCH, "environments", "expert", "recordings")
 ENV_EXPERT_ANALYZED = os.path.join(BENCH, "environments", "expert_analyzed", "mounted")
 ENV_EXPERIENTIAL_ANALYZED = os.path.join(BENCH, "environments", "experiential_analyzed", "mounted")
+# Phase 7: two recording systems captured the SAME six train sessions
+# simultaneously. ocic_new = raw 4-track recordings (nothing distilled at
+# capture time); cowork = one generated markdown artifact per task, already
+# analyzed at capture time by that system (no raw layer is retained by it).
+# Both analyzed environments carry per-site ANALYSIS docs authored from their
+# own sources only, by the same isolated Fable-5 distiller.
+ENV_OCIC_NEW_ANALYZED = os.path.join(BENCH, "environments", "ocic_new_analyzed", "mounted")
+ENV_COWORK_ANALYZED = os.path.join(BENCH, "environments", "cowork_analyzed", "mounted")
 
 def populate_experience(workdir, kind, log):
     """Copy the read-only prior-experience environment VERBATIM into
@@ -541,7 +620,9 @@ def populate_experience(workdir, kind, log):
     only in the source of experience."""
     src = {"experiential": ENV_EXPERIENTIAL, "expert": ENV_EXPERT,
            "expert_analyzed": ENV_EXPERT_ANALYZED,
-           "experiential_analyzed": ENV_EXPERIENTIAL_ANALYZED}.get(kind)
+           "experiential_analyzed": ENV_EXPERIENTIAL_ANALYZED,
+           "ocic_new_analyzed": ENV_OCIC_NEW_ANALYZED,
+           "cowork_analyzed": ENV_COWORK_ANALYZED}.get(kind)
     if not src:
         raise ValueError("unknown experience kind: %s" % kind)
     dst = os.path.join(workdir, "experience")
@@ -1037,7 +1118,8 @@ def run_rollout(exp_name, exp, task, idx, total, log, buffer_s):
         if exp.get("recipe"):
             # recipe text is passed as a format VALUE (its own braces, if any,
             # are never re-processed); authored by the isolated generator.
-            fmt_kw["recipe"] = load_recipe(exp["recipe"], task["app"])
+            fmt_kw["recipe"] = load_recipe(exp["recipe"], task["app"],
+                                           exp.get("recipe_dir"))
         prompt = exp["header"].format(tab=tab, app_name=task["app"], app_url=task["url"],
                                       goal=task["goal"], **fmt_kw)
         open(os.path.join(rollout_dir, "prompt.txt"), "w").write(prompt)

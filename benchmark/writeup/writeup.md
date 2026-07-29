@@ -204,6 +204,23 @@ OCIC running in the Brave Browser with two site-specific analysis artifacts (one
 
 <p align="center"><img src="../analysis/img/leg_5d_medium.png" alt="6b: OCIC x Brave x Dynamic Analysis Embedded + Single Experiential (context)" height="220"></p>
 
+### Phase 7 (Corroloary): OCIC Recordings vs Anthropic Recordings (Expert Demonstrations)
+So far the expert demonstrations have been produced by OCIC, but given Anthropic's recent release of [recordings in Claude Cowork](https://x.com/claudeai/status/2079595988998554047) I wanted to compare the two methods.
+There is one key caveat to keep in mind in that Anthropic's recordings are general purpose, recording at the OS level while OCIC's recordings are specifically for browser use.
+As for the Claude in Chrome recordings feature, I selected not to use it given its poor implementation with skill truncation.
+
+#### 7a: OCIC x Brave x OCIC Expert (workspace) x Analysis Docs
+Same setup as 3b just different content for the recordings, important for parity with the Claude Cowork recordings.
+
+#### 7b: OCIC x Brave x Claude Cowork Expert (workspace) x Analysis Docs
+Same setup as 3b just different content for the recordings and differnet method for capturing the recordings (Claude Cowork Recording feature).
+
+#### 7c: OCIC x Brave x OCIC Recordings Only sourced Dynamic Analysis Embedded Task 
+Same setup as 5b but instead of using the both experiential and expert demonstrations only the new set of 6 OCIC recordings was used for the analysis artifacts.
+
+#### 7d: OCIC x Brave x Claude Cowork Recordings Only sourced Dynamic Analysis Embedded Task
+Same setup as 5b but instead of using the both experiential and expert demonstrations only the new set of 6 Claude Cowork recordings was used for the analysis artifacts.
+
 # Results
 There were 3 major axes we are measuring against: latency, turns per task, and correctness.
 
@@ -465,12 +482,36 @@ Then I paired it with the embedded analysis artifact from 5b to form 6b.
 </p>
 <p align="center"><sub><em><b>Figure 27.</b> Same scalar-space plot; 4a&#8594;6a: turns barely move, latency collapses. 6a&#8594;6b: the recipe stacks on top and moves both axes further.</em></sub></p>
 
+## Phase 7 (Corroloary)
+There was a lingering question during the study: how does [OCIC's methodology for recordings](../../README.md#imitation-learning-recording) (method that produces expert demonstrations) perform against [Anthropic's methedology for recordings](https://x.com/claudeai/status/2079595988998554047)?
+To answer this question I produced an experiment that reproduced phase 3 and phase 5 line of methods but instead of comparing between experiential and expert demonstrations I compared between OCIC and Anthropic's recordings (expert demonstrations).
+In this phase both of the recordings happened over the same over the same demonstration simultaneously ensuring the same content was captured.
+The sources, the distilled artifacts and the exact authoring prompts are all preserved in [`benchmark/phase7_reproduction/`](../phase7_reproduction/README.md).
+
+
+<p align="center">
+<img src="images/phase7_highlight.png" alt="Scalar space chart with the four phase-7 arms as diamonds over the faded original 13: two OCIC-to-cowork vectors, the short one for the on-disk regime and a much longer one for the in-prompt regime" width="760">
+</p>
+<p align="center"><sub><em><b>Figure 28.</b> Same scalar-space plot; the four phase-7 arms (diamonds) over the original 13 (faded). Each arrow is the same comparison &mdash; OCIC &rarr; cowork &mdash; inside one delivery regime, decomposed into its turns and latency components; both components worsen in both regimes, so every segment is red. The two vectors are directly comparable, and the second is roughly three times the first. Built by <a href="../analysis/build_phase7_highlight.py">build_phase7_highlight.py</a>.</em></sub></p>
+
+| Arm | Recording | Delivery | Suite | Turns/task | Passed |
+| :--- | :--- | :--- | :---: | :---: | :---: |
+| 7a | OCIC | analysis on disk | **22.2 min** | **33.7** | 12/12 |
+| 7b | Claude Cowork | analysis on disk | 24.2 min | 35.6 | 12/12 |
+| 7c | OCIC | recipe in prompt | **20.3 min** | **31.1** | 10/12 |
+| 7d | Claude Cowork | recipe in prompt | 26.7 min | 37.7 | 8/12 |
+| *baseline* | *&mdash;* | *cold (1a/1b/1c avg)* | *24.8 min* | *32.9* | *8/12* |
+
+<p align="center"><sub><em><b>Table 2.</b> The four phase-7 arms against the Phase-1 cold baseline. Suite is total run minutes over the 12 held-out tasks, turns is mean <code>num_turns</code> per task &mdash; the same definitions used for the other 13 arms throughout. Both recordings were captured over the same six demonstrations simultaneously, and both analysis artifacts were distilled by the same model under the same prompt, so the recording method is the only variable.</em></sub></p>
+
+OCIC's recordings were demonstrably better than Anthropic's recordings on both latency and turn count. OCIC's 7a was 2 minutes faster than Anthropic's 7b on latency and 1.9 turns faster on turn count. For the dynamic analysis embedded task the margin significantly grew to now 6.4 turns faster for OCIC's 7c than Anthropic's 7d and 6.6 turns faster.
+
 # Conclusion
 
 # Appendix
-Here I really wanted to show this graphic (Figure 28) so I created an appendix just to show it.
+Here I really wanted to show this graphic (Figure 29) so I created an appendix just to show it.
 
 <p align="center">
 <img src="images/pass_slow_fail.png" alt="Pass, slow, or fail grid: every arm against every task, 13 arms by 12 held-out tasks" width="760">
 </p>
-<p align="center"><sub><em><b>Figure 28.</b> Every arm (columns) against every held-out task (rows). Green = passed; amber = passed but slow for that arm (a within-arm time outlier, robust MAD z-score &gt; 1.5 against that arm's own task times, not a fixed time threshold); red F = failed. Accuracy is the deterministically re-graded verdict (see accuracy_regrade.py), not the raw LLM-judge output. dashdish-8 fails for every arm; zilloft-2, zilloft-5, and zilloft-10 are the three tasks whose verdict varies by arm. Built by <a href="../analysis/build_pass_slow_fail.py">build_pass_slow_fail.py</a>.</em></sub></p>
+<p align="center"><sub><em><b>Figure 29.</b> Every arm (columns) against every held-out task (rows). Green = passed; amber = passed but slow for that arm (a within-arm time outlier, robust MAD z-score &gt; 1.5 against that arm's own task times, not a fixed time threshold); red F = failed. Accuracy is the deterministically re-graded verdict (see accuracy_regrade.py), not the raw LLM-judge output. dashdish-8 fails for every arm; zilloft-2, zilloft-5, and zilloft-10 are the three tasks whose verdict varies by arm. Built by <a href="../analysis/build_pass_slow_fail.py">build_pass_slow_fail.py</a>.</em></sub></p>

@@ -34,6 +34,11 @@ ARMS = [
     # historical pre-fix
     "exp1a-ocic-cold", "exp1a-chrome", "exp2a-experiential", "exp2b-expert",
     "exp3a-code", "exp3b-code-analysis",
+    # phase 7: recording-system comparison (OCIC raw recordings vs cowork
+    # artifacts), same six train sessions captured simultaneously by both.
+    # 7a/7b replay the phase-3 regime, 7c/7d the 5b regime.
+    "exp7a-ocic-analysis", "exp7b-cowork-analysis",
+    "exp7c-ocic-recipe", "exp7d-cowork-recipe",
 ]
 
 BROWSER_TOOL = re.compile(r"mcp__(open-claude-in-chrome[^_]*|claude-in-chrome)__")
