@@ -17,9 +17,9 @@ The browser agent's failure modes can be destructured into the following:
 3. Correctness: The browser agent may fail to complete the task.
 
 I explored a series of methods to unilaterally improve across each of these axes against a clean room version of Claude in Chrome.
-The expectation was that any naive method would be sufficient to improve across all three axes, this was not the case. But after several phases of experimentation, arm 6b showcased that by distilling prior experience into a prompt-embedded recipe together with a warmed-up session the agent significantly beats the baseline across all three axes: **-16% latency, -26% turns per task, and +37% increase in accuracy**.
+The expectation was that any naive method would be sufficient to improve across all three axes, this was not the case. But after several phases of experimentation, arm [6b](#6b-ocic-x-brave-x-dynamic-analysis-embedded-task-x-single-experiential-context) showcased that by distilling prior experience into a prompt-embedded recipe together with a warmed-up session the agent significantly beats the baseline across all three axes: **-16% latency, -26% turns per task, and +37% increase in accuracy**.
 
-| Axis | Phase-1 baseline (mean of 1a, 1b, 1c) | 6b (warm-up + recipe) |
+| Axis | Phase-1 baseline (mean of [1a](#1a-cinc-cinc-x-chrome), [1b](#1b-ocic-ch-ocic-x-chrome), [1c](#1c-ocic-br-ocic-x-brave)) | [6b](#6b-ocic-x-brave-x-dynamic-analysis-embedded-task-x-single-experiential-context) (warm-up + recipe) |
 | :--- | :---: | :---: |
 | Latency, per task | 2.06 min | **1.74 min** |
 | Latency, 12-task suite | 24.8 min | **20.9 min** |
@@ -49,7 +49,7 @@ Three medium tasks were randomly selected from each target site to build the tra
 **The remaining 12 composed the held-out test set** ([`tasks_manifest.json`](../tasks_manifest.json)).
 
 Caveat 1:
-Although REAL provides difficulty labels they were shown to be **anti-correlated where the baseline (1c) passes 3/4 hard tasks only 2/5 medium tasks passed** ([`accuracy_corrected.json`](../analysis/accuracy_corrected.json)).
+Although REAL provides difficulty labels they were shown to be **anti-correlated where the baseline ([1c](#1c-ocic-br-ocic-x-brave)) passes 3/4 hard tasks only 2/5 medium tasks passed** ([`accuracy_corrected.json`](../analysis/accuracy_corrected.json)).
 
 Caveat 2: **Some evaluations were not consistent between semantically equivalent LLM outputs** ([`accuracy_regrade.py`](../analysis/accuracy_regrade.py)).
 
@@ -69,7 +69,7 @@ Why make a clean room version? Three reasons:
 2. Claude in Chrome limits the extension to only work on Chrome and Edge, if you use a different browser you are out of luck.
 3. Claude in Chrome harness uses several methods that slow down the agent and may decrease performance in other axes, that is completely out of the user's control.
 
-OCIC solves each of these problems in turn expanding utility and improving performance by design, resulting in a substantial improvement where in **the average harness turn latency 1a (CinC x Chrome) is 0.308s while in 1b (OCIC x Chrome) latency drops to 0.115s** ([`build_latency_harness.py`](../analysis/build_latency_harness.py), [`capstone.json`](../analysis/capstone.json)).
+OCIC solves each of these problems in turn expanding utility and improving performance by design, resulting in a substantial improvement where in **the average harness turn latency [1a](#1a-cinc-cinc-x-chrome) (CinC x Chrome) is 0.308s while in [1b](#1b-ocic-ch-ocic-x-chrome) (OCIC x Chrome) latency drops to 0.115s** ([`build_latency_harness.py`](../analysis/build_latency_harness.py), [`capstone.json`](../analysis/capstone.json)).
 
 There is only a single arm that uses CinC, it serves as the control group for the study.
 
@@ -173,7 +173,7 @@ OCIC running in the Brave Browser with prior experience trajectories loaded into
 <p align="center"><img src="../analysis/img/leg_4a_medium.png" alt="4a: OCIC x Brave x Experiential (context)" height="220"></p>
 
 #### 4b: OCIC x Brave x Expert (context)
-OCIC running in the Brave Browser with prior expert demonstrations internalized ahead of the task by performing a deep analysis of the expert demonstrations. Unlike 4a there is no means of loading the context naively so instead the agent internalized the context by operating on a workspace that contains the expert demonstrations. Over the course of internalizing the content the agent wrote notes onto disk which we represent as analysis documents.
+OCIC running in the Brave Browser with prior expert demonstrations internalized ahead of the task by performing a deep analysis of the expert demonstrations. Unlike [4a](#4a-ocic-x-brave-x-experiential-context) there is no means of loading the context naively so instead the agent internalized the context by operating on a workspace that contains the expert demonstrations. Over the course of internalizing the content the agent wrote notes onto disk which we represent as analysis documents.
 
 <p align="center"><img src="../analysis/img/leg_4b_medium.png" alt="4b: OCIC x Brave x Expert (context)" height="220"></p>
 
@@ -206,20 +206,20 @@ OCIC running in the Brave Browser with two site-specific analysis artifacts (one
 
 ### Phase 7 (Corroloary): OCIC Recordings vs Anthropic Recordings (Expert Demonstrations)
 So far the expert demonstrations have been produced by OCIC, but given Anthropic's recent release of [recordings in Claude Cowork](https://x.com/claudeai/status/2079595988998554047) I wanted to compare the two methods.
-There is one key caveat to keep in mind in that Anthropic's recordings are general purpose, recording at the OS level while OCIC's recordings are specifically for browser use.
-As for the Claude in Chrome recordings feature, I selected not to use it given its poor implementation with skill truncation.
+There is one key caveat to keep in mind in that **Anthropic's recordings are general purpose, recording at the OS level while OCIC's recordings are specifically for browser use**.
+As for the Claude in Chrome recordings feature, **I selected not to use it given its poor implementation with skill truncation**.
 
 #### 7a: OCIC x Brave x OCIC Expert (workspace) x Analysis Docs
-Same setup as 3b just different content for the recordings, important for parity with the Claude Cowork recordings.
+Same setup as [3b](#3b-ocic-x-brave-x-expert-workspace-x-analysis-docs) just **different content for the recordings, important for parity with the Claude Cowork recordings** ([sources and artifacts](../phase7_reproduction/README.md)).
 
 #### 7b: OCIC x Brave x Claude Cowork Expert (workspace) x Analysis Docs
-Same setup as 3b just different content for the recordings and differnet method for capturing the recordings (Claude Cowork Recording feature).
+Same setup as [3b](#3b-ocic-x-brave-x-expert-workspace-x-analysis-docs) just different content for the recordings and **differnet method for capturing the recordings** (Claude Cowork Recording feature; the six artifacts are in [`sources_cowork/`](../phase7_reproduction/sources_cowork)).
 
 #### 7c: OCIC x Brave x OCIC Recordings Only sourced Dynamic Analysis Embedded Task 
-Same setup as 5b but instead of using the both experiential and expert demonstrations only the new set of 6 OCIC recordings was used for the analysis artifacts.
+Same setup as [5b](#5b-ocic-x-brave-x-dynamic-analysis-embedded-task) but instead of using the both experiential and expert demonstrations **only the new set of 6 OCIC recordings was used for the analysis artifacts** ([recipe](../phase7_reproduction/distilled/ocic_RECIPE_dashdish.md)).
 
 #### 7d: OCIC x Brave x Claude Cowork Recordings Only sourced Dynamic Analysis Embedded Task
-Same setup as 5b but instead of using the both experiential and expert demonstrations only the new set of 6 Claude Cowork recordings was used for the analysis artifacts.
+Same setup as [5b](#5b-ocic-x-brave-x-dynamic-analysis-embedded-task) but instead of using the both experiential and expert demonstrations **only the new set of 6 Claude Cowork recordings was used for the analysis artifacts** ([recipe](../phase7_reproduction/distilled/cowork_RECIPE_dashdish.md)).
 
 # Results
 There were 3 major axes we are measuring against: latency, turns per task, and correctness.
@@ -298,7 +298,7 @@ Now that we have isolated for browser tool calls we can assess the stated granul
 </p>
 <p align="center"><sub><em><b>Figure 11.</b> Mean browser tool calls per task, pairing each phase's experiential arm against its expert-sourced counterpart — the same three pairs as Figure 8, where source is the only factor that changes inside a pair. The expert arms run <b>21&ndash;29% more browser calls than their experiential twin</b> in every pair, and they are the only arms outside phase 1 that sit above the cold line at all: that gap is what validation costs. Built by <a href="../analysis/build_validation_toolcalls.py">build_validation_toolcalls.py</a> from <a href="../analysis/toolcalls.json">toolcalls.json</a>.</em></sub></p>
 
-Excluding the expert legs (2b, 3b, 4b) the data shows an improvement in browser tool calls over the baseline phase across all arms.
+Excluding the expert legs ([2b](#2b-ocic-x-brave-x-expert-workspace), [3b](#3b-ocic-x-brave-x-expert-workspace-x-analysis-docs), [4b](#4b-ocic-x-brave-x-expert-context)) the data shows an improvement in browser tool calls over the baseline phase across all arms.
 **The trend showcases that most methods will drive an improvement in browser tool use count.**
 In fact even in the expert demonstrations legs you can see, across phases, the browser tool use count decreases in accordance to their experiential counterparts.
 Even with the validation behavior the turn improvements are trending toward improving on the baseline.
@@ -328,7 +328,7 @@ Latency is measured simply by the total time spent by the `claude -p ...` proces
 
 When it comes to latency we can see that **the performance is entirely in the details of the implementation**.
 **The key factor that did showcase consistent improvements against the baseline was appending analysis artifacts into the task prompt.**
-The influence is primarily observed in the wall-to-wall latency of 6b at -16% but then marginally in 5a and 5b.
+The influence is primarily observed in the wall-to-wall latency of [6b](#6b-ocic-x-brave-x-dynamic-analysis-embedded-task-x-single-experiential-context) at -16% but then marginally in [5a](#5a-ocic-x-brave-x-single-analysis-embedded-task) and [5b](#5b-ocic-x-brave-x-dynamic-analysis-embedded-task).
 
 Similar to the multiplier analysis of turn count in Figure 12, below in Figure 14 is an analysis of the task time as a multiple of the baseline task time.
 
@@ -386,7 +386,7 @@ Figure 19 will serve to recap the key insights of the study. We will recap by ph
 ## Phase 1
 | <img src="../analysis/img/leg_1b-cinc_medium.png" width="120"> | <img src="../analysis/img/leg_1a-chrome_medium.png" width="120"> | <img src="../analysis/img/leg_1a-brave_medium.png" width="120"> |
 |:---: | :---: | :---:|
-| `1a`<br><sub>Official CinC &#183; Chrome &#183; setup-parity control</sub> | `1b`<br><sub>OCIC &#183; Chrome &#183; cold</sub> | `1c`<br><sub>OCIC &#183; Brave &#183; cold, the primary baseline</sub> |
+| [`1a`](#1a-cinc-cinc-x-chrome)<br><sub>Official CinC &#183; Chrome &#183; setup-parity control</sub> | [`1b`](#1b-ocic-ch-ocic-x-chrome)<br><sub>OCIC &#183; Chrome &#183; cold</sub> | [`1c`](#1c-ocic-br-ocic-x-brave)<br><sub>OCIC &#183; Brave &#183; cold, the primary baseline</sub> |
 
 The first phase showcased the parity of performance between Claude in Chrome and open-claude-in-chrome where the metrics scored as follows. 2.04 vs 1.95 min/task and 31.4 vs 32.6 turns, a 4% gap in either direction, **p=0.44 and p=0.67 on a paired permutation test**. Same accuracy. In short **the harnesses are interchangeable on outcome, they differ only in per-action overhead (0.31 s vs 0.12 s)**. ([`stats.py`](../analysis/stats.py), [`stats.json`](../analysis/stats.json))
 
@@ -399,12 +399,12 @@ The first phase showcased the parity of performance between Claude in Chrome and
 ## Phase 2
 | <img src="../analysis/img/leg_2a_medium.png" width="120"> | <img src="../analysis/img/leg_2b_medium.png" width="120"> |
 |:---: | :---:|
-| `2a`<br><sub>Own past traces mounted on disk</sub> | `2b`<br><sub>Expert recordings mounted on disk</sub> |
+| [`2a`](#2a-ocic-x-brave-x-experiential-workspace)<br><sub>Own past traces mounted on disk</sub> | [`2b`](#2b-ocic-x-brave-x-expert-workspace)<br><sub>Expert recordings mounted on disk</sub> |
 
 For phase 2 I began to experiment with loading prior experience into the workspace.
-**There was a heavy agentic search tax to internalize the content amounting for a 360% increase in non-browser tool calls for 2a and 289% for 2b.**
-While in 2a the turn count would not be recovered, the latency did improve over the baseline.
-On the other hand, while 2b would not improve on latency nor turn count due to the new behavior, **it did increase in accuracy**.
+**There was a heavy agentic search tax to internalize the content amounting for a 360% increase in non-browser tool calls for [2a](#2a-ocic-x-brave-x-experiential-workspace) and 289% for [2b](#2b-ocic-x-brave-x-expert-workspace).**
+While in [2a](#2a-ocic-x-brave-x-experiential-workspace) the turn count would not be recovered, the latency did improve over the baseline.
+On the other hand, while [2b](#2b-ocic-x-brave-x-expert-workspace) would not improve on latency nor turn count due to the new behavior, **it did increase in accuracy**.
 
 <p align="center">
 <img src="images/search_tax.png" alt="Non-browser tool calls per task and seconds to the first browser action, cold baseline against 2a and 2b" width="760">
@@ -420,11 +420,11 @@ On the other hand, while 2b would not improve on latency nor turn count due to t
 ## Phase 3
 | <img src="../analysis/img/leg_3d_medium.png" width="120"> | <img src="../analysis/img/leg_3c_medium.png" width="120"> |
 |:---: | :---:|
-| `3a`<br><sub>Compressed analysis of own runs, on disk</sub> | `3b`<br><sub>Compressed analysis of expert recordings, on disk</sub> |
+| [`3a`](#3a-ocic-x-brave-x-experiential-workspace-x-analysis-docs)<br><sub>Compressed analysis of own runs, on disk</sub> | [`3b`](#3b-ocic-x-brave-x-expert-workspace-x-analysis-docs)<br><sub>Compressed analysis of expert recordings, on disk</sub> |
 
 For phase 3 I attempted to reduce the agentic search tax by distilling the prior experience into a single analysis artifact present in the workspace.
-**This resulted in a reduction in turn count between the arm and its phase 2 counterpart, -12% for 3a and -10% for 3b.**
-**Yet surprisingly neither arm beat 2a on latency.**
+**This resulted in a reduction in turn count between the arm and its phase 2 counterpart, -12% for [3a](#3a-ocic-x-brave-x-experiential-workspace-x-analysis-docs) and -10% for [3b](#3b-ocic-x-brave-x-expert-workspace-x-analysis-docs).**
+**Yet surprisingly neither arm beat [2a](#2a-ocic-x-brave-x-experiential-workspace) on latency.**
 
 
 <p align="center">
@@ -435,10 +435,10 @@ For phase 3 I attempted to reduce the agentic search tax by distilling the prior
 ## Phase 4
 | <img src="../analysis/img/leg_4a_medium.png" width="120"> | <img src="../analysis/img/leg_4b_medium.png" width="120"> |
 |:---: | :---:|
-| `4a`<br><sub>Own study session forked into context</sub> | `4b`<br><sub>Expert study session forked into context</sub> |
+| [`4a`](#4a-ocic-x-brave-x-experiential-context)<br><sub>Own study session forked into context</sub> | [`4b`](#4b-ocic-x-brave-x-expert-context)<br><sub>Expert study session forked into context</sub> |
 
 In phase 4 I decided to outright remove the dependency on the workspace and instead just internalize the priors into the context before the task.
-**This resulted in an explosion in context reaching 480k tokens in 4a and 251k in 4b resulting in a dramatic increase in seconds per turn 3.2x and 2x respectively.**
+**This resulted in an explosion in context reaching 480k tokens in [4a](#4a-ocic-x-brave-x-experiential-context) and 251k in [4b](#4b-ocic-x-brave-x-expert-context) resulting in a dramatic increase in seconds per turn 3.2x and 2x respectively.**
 That being said there was an improvement in turn count, albeit not nearly enough to make up for the latency increase.
 
 <p align="center">
@@ -455,11 +455,11 @@ That being said there was an improvement in turn count, albeit not nearly enough
 ## Phase 5
 | <img src="../analysis/img/leg_5b_medium.png" width="120"> | <img src="../analysis/img/leg_5a_medium.png" width="120"> |
 |:---: | :---:|
-| `5a`<br><sub>One combined recipe in the prompt</sub> | `5b`<br><sub>Per-site recipe in the prompt</sub> |
+| [`5a`](#5a-ocic-x-brave-x-single-analysis-embedded-task)<br><sub>One combined recipe in the prompt</sub> | [`5b`](#5b-ocic-x-brave-x-dynamic-analysis-embedded-task)<br><sub>Per-site recipe in the prompt</sub> |
 
 In phase 5 I explored entirely stripping away the context and instead embedding a distillation of the priors into the task prompt.
 Both saw an equal improvement over all prior arms.
-The difference between the two was that 5a used a single recipe for both sites while 5b dynamically passed one of two recipes based on the site.
+The difference between the two was that [5a](#5a-ocic-x-brave-x-single-analysis-embedded-task) used a single recipe for both sites while [5b](#5b-ocic-x-brave-x-dynamic-analysis-embedded-task) dynamically passed one of two recipes based on the site.
 **This distinction had no influence on outcomes.**
 
 <p align="center">
@@ -470,12 +470,12 @@ The difference between the two was that 5a used a single recipe for both sites w
 ## Phase 6
 | <img src="../analysis/img/leg_5c_medium.png" width="120"> | <img src="../analysis/img/leg_5d_medium.png" width="120"> |
 |:---: | :---:|
-| `6a`<br><sub>Single-task warm-up fork, tiny context</sub> | `6b`<br><sub>Warm-up fork + site recipe</sub> |
+| [`6a`](#6a-ocic-x-brave-x-single-experiential-context)<br><sub>Single-task warm-up fork, tiny context</sub> | [`6b`](#6b-ocic-x-brave-x-dynamic-analysis-embedded-task-x-single-experiential-context)<br><sub>Warm-up fork + site recipe</sub> |
 
 Finally, in phase 6 I stubbornly wanted to know if any amount of warming up could outweigh the added context tax.
-I ran 6a (just a single warm-up task) as a control and you could see that **it already captured nearly all of the turn savings of 4a at 98% while significantly improving accuracy at merely 19% of 4a's context**.
-Then I paired it with the embedded analysis artifact from 5b to form 6b.
-**6b then showcased a substantial improvement in both latency and turn count over 6a: 20.9 vs 25.0 min (−16%) and 24.1 vs 26.4 turns (−9%) over 6a.**
+I ran [6a](#6a-ocic-x-brave-x-single-experiential-context) (just a single warm-up task) as a control and you could see that **it already captured nearly all of the turn savings of [4a](#4a-ocic-x-brave-x-experiential-context) at 98% while significantly improving accuracy at merely 19% of [4a](#4a-ocic-x-brave-x-experiential-context)'s context**.
+Then I paired it with the embedded analysis artifact from [5b](#5b-ocic-x-brave-x-dynamic-analysis-embedded-task) to form [6b](#6b-ocic-x-brave-x-dynamic-analysis-embedded-task-x-single-experiential-context).
+**[6b](#6b-ocic-x-brave-x-dynamic-analysis-embedded-task-x-single-experiential-context) then showcased a substantial improvement in both latency and turn count over [6a](#6a-ocic-x-brave-x-single-experiential-context): 20.9 vs 25.0 min (−16%) and 24.1 vs 26.4 turns (−9%) over [6a](#6a-ocic-x-brave-x-single-experiential-context).**
 
 <p align="center">
 <img src="images/phase6_highlight.png" alt="Scalar space chart with 4a, 6a, and 6b highlighted: a steep arrow from 4a down to 6a showing latency collapsing at nearly the same turn count, then a second arrow from 6a to 6b showing further improvement on both axes" width="760">
@@ -485,26 +485,26 @@ Then I paired it with the embedded analysis artifact from 5b to form 6b.
 ## Phase 7 (Corroloary)
 There was a lingering question during the study: how does [OCIC's methodology for recordings](../../README.md#imitation-learning-recording) (method that produces expert demonstrations) perform against [Anthropic's methedology for recordings](https://x.com/claudeai/status/2079595988998554047)?
 To answer this question I produced an experiment that reproduced phase 3 and phase 5 line of methods but instead of comparing between experiential and expert demonstrations I compared between OCIC and Anthropic's recordings (expert demonstrations).
-In this phase both of the recordings happened over the same over the same demonstration simultaneously ensuring the same content was captured.
-The sources, the distilled artifacts and the exact authoring prompts are all preserved in [`benchmark/phase7_reproduction/`](../phase7_reproduction/README.md).
+In this phase **both of the recordings happened over the same over the same demonstration simultaneously ensuring the same content was captured**.
+The sources, the distilled artifacts and the exact authoring prompts are all preserved in [`benchmark/phase7_reproduction/`](../phase7_reproduction/README.md); **all four artifact sets were distilled by the same model at the same effort** ([`claude-fable-5`, max](../phase7_reproduction/distillation_prompts.md)), so the recording method is the only variable.
 
 
 <p align="center">
 <img src="images/phase7_highlight.png" alt="Scalar space chart with the four phase-7 arms as diamonds over the faded original 13: two OCIC-to-cowork vectors, the short one for the on-disk regime and a much longer one for the in-prompt regime" width="760">
 </p>
-<p align="center"><sub><em><b>Figure 28.</b> Same scalar-space plot; the four phase-7 arms (diamonds) over the original 13 (faded). Each arrow is the same comparison &mdash; OCIC &rarr; cowork &mdash; inside one delivery regime, decomposed into its turns and latency components; both components worsen in both regimes, so every segment is red. The two vectors are directly comparable, and the second is roughly three times the first. Built by <a href="../analysis/build_phase7_highlight.py">build_phase7_highlight.py</a>.</em></sub></p>
+<p align="center"><sub><em><b>Figure 28.</b> Same scalar-space plot; the four phase-7 arms (diamonds) over the original 13 (faded). Each arrow is the same comparison &mdash; Cowork &rarr; OCIC &mdash; inside one delivery regime, decomposed into its turns and latency components, so each vector is the ground OCIC recovers. Both components improve in both regimes, so every segment is green. The two vectors are directly comparable, and the second is roughly three times the first. Built by <a href="../analysis/build_phase7_highlight.py">build_phase7_highlight.py</a>.</em></sub></p>
 
 | Arm | Recording | Delivery | Suite | Turns/task | Passed |
 | :--- | :--- | :--- | :---: | :---: | :---: |
-| 7a | OCIC | analysis on disk | **22.2 min** | **33.7** | 12/12 |
-| 7b | Claude Cowork | analysis on disk | 24.2 min | 35.6 | 12/12 |
-| 7c | OCIC | recipe in prompt | **20.3 min** | **31.1** | 10/12 |
-| 7d | Claude Cowork | recipe in prompt | 26.7 min | 37.7 | 8/12 |
-| *baseline* | *&mdash;* | *cold (1a/1b/1c avg)* | *24.8 min* | *32.9* | *8/12* |
+| [7a](#7a-ocic-x-brave-x-ocic-expert-workspace-x-analysis-docs) | OCIC | analysis on disk | **22.2 min** | **33.7** | 12/12 |
+| [7b](#7b-ocic-x-brave-x-claude-cowork-expert-workspace-x-analysis-docs) | Claude Cowork | analysis on disk | 24.2 min | 35.6 | 12/12 |
+| [7c](#7c-ocic-x-brave-x-ocic-recordings-only-sourced-dynamic-analysis-embedded-task) | OCIC | recipe in prompt | **20.3 min** | **31.1** | 10/12 |
+| [7d](#7d-ocic-x-brave-x-claude-cowork-recordings-only-sourced-dynamic-analysis-embedded-task) | Claude Cowork | recipe in prompt | 26.7 min | 37.7 | 8/12 |
+| *baseline* | *&mdash;* | *cold ([1a](#1a-cinc-cinc-x-chrome)/1b/1c avg)* | *24.8 min* | *32.9* | *8/12* |
 
 <p align="center"><sub><em><b>Table 2.</b> The four phase-7 arms against the Phase-1 cold baseline. Suite is total run minutes over the 12 held-out tasks, turns is mean <code>num_turns</code> per task &mdash; the same definitions used for the other 13 arms throughout. Both recordings were captured over the same six demonstrations simultaneously, and both analysis artifacts were distilled by the same model under the same prompt, so the recording method is the only variable.</em></sub></p>
 
-OCIC's recordings were demonstrably better than Anthropic's recordings on both latency and turn count. OCIC's 7a was 2 minutes faster than Anthropic's 7b on latency and 1.9 turns faster on turn count. For the dynamic analysis embedded task the margin significantly grew to now 6.4 turns faster for OCIC's 7c than Anthropic's 7d and 6.6 turns faster.
+**OCIC's recordings were demonstrably better than Anthropic's recordings on both latency and turn count.** OCIC's [7a](#7a-ocic-x-brave-x-ocic-expert-workspace-x-analysis-docs) was 2 minutes faster than Anthropic's [7b](#7b-ocic-x-brave-x-claude-cowork-expert-workspace-x-analysis-docs) on latency and 1.9 turns faster on turn count. For the dynamic analysis embedded task the margin significantly grew to now 6.4 turns faster for OCIC's [7c](#7c-ocic-x-brave-x-ocic-recordings-only-sourced-dynamic-analysis-embedded-task) than Anthropic's [7d](#7d-ocic-x-brave-x-claude-cowork-recordings-only-sourced-dynamic-analysis-embedded-task) and 6.6 turns faster.
 
 # Conclusion
 
