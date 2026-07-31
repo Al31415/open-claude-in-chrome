@@ -41,7 +41,9 @@
   .th-cur{width:124px;flex:none;text-align:center;color:var(--ok)}
   .th-n{flex:1.2;color:#7a3fd1;padding-left:12px}
   @media (prefers-color-scheme:dark){ .th-n{color:#b18aeb} }
-  .tl-lanes{display:flex;position:relative}
+  /* height is computed from content, so nothing should ever exceed it; the
+     clip is a hard guarantee that a lane can never paint over the raw JSON */
+  .tl-lanes{display:flex;position:relative;overflow:hidden}
   /* time rail: labels on the left, dashed gridlines across every lane */
   .rail{width:48px;flex:none;position:relative}
   .rail .tk{position:absolute;right:9px;transform:translateY(-50%);font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--muted);opacity:.7;white-space:nowrap}
@@ -82,8 +84,13 @@
   .mrow .v code{font-size:12px}
   .mrow .v .path{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);white-space:pre-wrap}
   .modal pre{margin-top:14px;max-height:none}
-  pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;overflow-x:auto;font-size:11px;margin:4px 0}
+  pre{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px;overflow:auto;font-size:11px;margin:4px 0}
+  /* the raw dump scrolls inside its own box instead of running for pages */
+  details.raw pre{max-height:420px}
   .empty{color:var(--muted);font-size:13px;padding:8px 0}
+  /* a failed/partial transcript is the loudest thing in the session card */
+  .tstatus{margin:0 0 10px;padding:8px 10px;border-radius:7px;font-size:12.5px;
+    background:rgba(210,59,46,.09);border:1px solid rgba(210,59,46,.35);color:var(--rec)}
 </style>
 </head>
 <body>

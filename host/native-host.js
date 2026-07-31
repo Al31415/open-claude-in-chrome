@@ -169,6 +169,32 @@ function handleSaveRecording(msg) {
   }
 }
 
+// Write one slice of a recording's audio into audio/NNN.webm. Arrives in
+// ~768KB slices (base64 over native messaging) with append=false on the first
+// slice of each segment. This is the artifact that makes a failed transcript
+// recoverable, so it is written before transcription is even attempted.
+function handleSaveAudio(msg) {
+  try {
+    const rel = String(msg.name || "").replace(/\\/g, "/");
+    // Contain the write to the bundle: no absolute paths, no traversal.
+    if (rel.startsWith("/") || rel.split("/").includes("..")) return;
+    const base = path.join(
+      os.homedir(),
+      ".config",
+      "open-claude-in-chrome",
+      "recordings",
+      String(msg.recording_id || "unknown")
+    );
+    const file = path.join(base, rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const buf = Buffer.from(String(msg.b64 || ""), "base64");
+    if (msg.append) fs.appendFileSync(file, buf);
+    else fs.writeFileSync(file, buf);
+  } catch {
+    // best-effort: the trace is already on disk
+  }
+}
+
 // Write one 240p frame into the recording's images/ dir. Fire-and-forget:
 // the reference is already in the trace, so a dropped frame just means the
 // agent finds no file at that ref.
@@ -207,6 +233,10 @@ process.stdin.on("data", (chunk) => {
     }
     if (msg && msg.type === "save_screenshot") {
       handleSaveScreenshot(msg);
+      continue;
+    }
+    if (msg && msg.type === "save_audio") {
+      handleSaveAudio(msg);
       continue;
     }
     // Forward everything else to the MCP server via TCP.

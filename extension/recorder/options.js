@@ -119,9 +119,14 @@ async function renderSessions() {
     const dur = Math.round(((s.ended_at || 0) - s.started_at) / 1000);
     const host = (() => { try { return new URL(s.url0).host; } catch { return "—"; } })();
     const audioUrl = s.audio && s.audio.size ? URL.createObjectURL(s.audio) : null;
+    // An empty narration track is ambiguous on its own — silent operator, or
+    // lost teaching? Say which, loudly, and never let it read as success.
+    const tstat = s.transcriptStatus || (s.trace && s.trace.transcript_status) || "";
     const status =
-      s.transcriptStatus && s.transcriptStatus !== "ok"
-        ? `<div class="empty" style="color:var(--rec)">transcript ${esc(s.transcriptStatus)}</div>`
+      tstat && tstat !== "ok"
+        ? `<div class="tstatus"><strong>Transcript ${esc(tstat.split(":")[0])}</strong> — ${esc(
+            tstat.replace(/^[^:]*:\s*/, "")
+          )}. The narration track is empty or incomplete; the audio is on disk in <code>audio/</code>.</div>`
         : "";
     const player = audioUrl
       ? `<audio controls src="${audioUrl}" style="width:100%;margin:6px 0"></audio>`
@@ -130,7 +135,7 @@ async function renderSessions() {
     const snip = (s.trace?.cognitive || []).slice(0, 2).map((u) => u.text).join(" ").trim();
     const snippet = snip ? `<span class="snip">“${esc(snip)}”</span>` : "";
     const pathText = s.path ? esc(s.path) : "not written to disk (mic or native-host issue)";
-    const pathrow = `<div class="pathrow"><code>${pathText}</code><button class="copy-ref" data-rid="${esc(s.recording_id)}" data-path="${esc(s.path || "")}">Copy reference</button></div>`;
+    const pathrow = `<div class="pathrow"><code>${pathText}</code><button class="copy-ref" data-rid="${esc(s.recording_id)}" data-path="${esc(s.path || "")}" data-tstatus="${esc(tstat)}">Copy reference</button></div>`;
     const frames = s.images && s.images.length ? ` · ${s.images.length} frames` : "";
     const el = document.createElement("details");
     el.className = "sess";
@@ -145,11 +150,11 @@ async function renderSessions() {
   }
 }
 
-// The two tracks, side by side and aligned by time. Both share one clock
-// (ms since started_at), so behavior (left lane) and narration (right lane)
-// are positioned by their timestamp against a common vertical time axis —
-// you read what was said next to what was done at the same moment, and quiet
-// stretches show as visible gaps. Raw per-event JSON is one layer deeper.
+// The three tracks, side by side and aligned by time. All share one clock
+// (ms since started_at), and — this is the load-bearing part — one mapping
+// from that clock to a y position, so what was said sits exactly beside what
+// was done. Quiet stretches show as visible gaps. Raw per-event JSON is one
+// layer deeper.
 function renderTracks(trace, rid, images) {
   if (!trace) return `<div class="empty">Trace not stored for this session.</div>`;
   const beh = (trace.behavior || []).slice().sort((a, b) => a.t - b.t);
@@ -166,10 +171,6 @@ function renderTracks(trace, rid, images) {
     cur.length ? cur[cur.length - 1].t : 0,
     1000
   );
-  // Map the whole span to a pixel height (clamped), so position ∝ time.
-  const H = Math.min(Math.max(Math.round((lastT / 1000) * 34), 220), 5000);
-  const y = (t) => Math.round((t / lastT) * (H - 8));
-
   // Track C: segment the cursor points into activity blocks (a gap > 500ms
   // starts a new block), so "cursor active, no behavior" stretches are visible
   // against the narration. Each block is clickable → the actual path on canvas.
@@ -186,25 +187,88 @@ function renderTracks(trace, rid, images) {
       }
     }
   }
+  traceCache.set(rid, { beh, cog, cseg, images: images || [] }); // for the popups
+
+  // ---- one shared, content-aware time axis ---------------------------------
+  // Position is NOT proportional to time alone: a second holding fifty events
+  // needs fifty events' worth of height, and no clamp may take that away.
+  // So y advances with elapsed time, and stretches further whenever the lane
+  // an item belongs to is still occupied. Crucially the stretch moves the
+  // SHARED y, so all three lanes stay on one axis — nothing is nudged per
+  // lane, which is what used to desynchronise them from each other and from
+  // the time rail while spilling thousands of pixels out of the container.
+  const MK_H = 20; // one behavior mark
+  const GAP = 3;
+  const PX_PER_MS = 0.003; // 3px per idle second: quiet stretches stay visible
+  const CW = 112; // curseg content width (lane minus padding/border)
+
+  const uttLines = (u) => Math.min(4, Math.max(1, Math.ceil((u.text || "").length / 46)));
+
+  const items = [];
+  beh.forEach((e, i) => items.push({ t: e.t, lane: 0, h: MK_H, kind: "b", i, e }));
+  cseg.forEach((s, i) => {
+    const im = nearestImage(images, s.start);
+    const framed = !!(im && im.dataUrl && im.vw > 0 && im.vh > 0);
+    items.push({
+      t: s.start,
+      lane: 1,
+      h: framed ? Math.max(30, Math.round(CW * (im.vh / im.vw))) : 24,
+      kind: "c",
+      i,
+      s,
+      im: framed ? im : null
+    });
+  });
+  cog.forEach((u, i) => {
+    const lines = uttLines(u);
+    items.push({ t: u.t, lane: 2, h: 10 + lines * 17, kind: "n", i, u, lines });
+  });
+  items.sort((a, b) => a.t - b.t || a.lane - b.lane);
+
+  const bp = [[0, 0]]; // breakpoints [t, y] of the shared mapping
+  const free = [0, 0, 0]; // per-lane occupied-until y
+  let yy = 0, prevT = 0;
+  for (const it of items) {
+    yy += (it.t - prevT) * PX_PER_MS;
+    prevT = it.t;
+    if (yy < free[it.lane]) yy = free[it.lane];
+    it.top = Math.round(yy);
+    free[it.lane] = it.top + it.h + GAP;
+    const last = bp[bp.length - 1];
+    if (it.t === last[0]) last[1] = it.top;
+    else bp.push([it.t, it.top]);
+  }
+  // Height is whatever the content actually needed — no clamp, so nothing
+  // can overflow into the raw-JSON block below.
+  const H = Math.max(Math.round(Math.max(yy + (lastT - prevT) * PX_PER_MS, ...free)) + 8, 220);
+  if (lastT > bp[bp.length - 1][0]) bp.push([lastT, H - 8]);
+
+  // The same mapping, interpolated, for things not anchored to an item.
+  const y = (t) => {
+    if (t <= bp[0][0]) return bp[0][1];
+    if (t >= bp[bp.length - 1][0]) return bp[bp.length - 1][1];
+    let lo = 0, hi = bp.length - 1;
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1;
+      if (bp[mid][0] <= t) lo = mid;
+      else hi = mid;
+    }
+    const [t0, y0] = bp[lo], [t1, y1] = bp[hi];
+    return Math.round(y0 + ((t - t0) / (t1 - t0 || 1)) * (y1 - y0));
+  };
+
   // Each gesture: the path drawn on the faded frame it happened over, fit to
   // the frame (SVG viewBox = the frame's viewport, so raw x/y land in place).
-  // Frame-aspect thumbnails, greedy-stacked so they don't overlap. No frame →
-  // the old solid block. Click opens the full popup.
-  const CW = 112; // curseg content width (lane minus padding/border)
-  let cbBottom = -Infinity;
-  const cursorBlocks = cseg
-    .map((s, i) => {
-      const im = nearestImage(images, s.start);
-      let top = Math.max(y(s.start), 0);
-      if (im && im.dataUrl && im.vw > 0 && im.vh > 0) {
-        const th = Math.max(30, Math.round(CW * (im.vh / im.vw)));
-        if (top < cbBottom) top = cbBottom;
-        cbBottom = top + th + 3;
+  // No frame → a solid block. Click opens the full popup.
+  const cursorBlocks = items
+    .filter((x) => x.kind === "c")
+    .map(({ s, i, im, top, h }) => {
+      if (im) {
         const pts = s.pts.map((p) => `${p.x},${p.y}`).join(" ");
         const a = s.pts[0], b = s.pts[s.pts.length - 1];
         const r = Math.round(Math.max(im.vw, im.vh) * 0.013);
         return (
-          `<div class="curseg" style="top:${top}px;height:${th}px" data-rid="${esc(rid)}" data-cseg="${i}" title="${s.pts.length} points">` +
+          `<div class="curseg" style="top:${top}px;height:${h}px" data-rid="${esc(rid)}" data-cseg="${i}" title="${s.pts.length} points">` +
           `<img class="curseg-frame" src="${im.dataUrl}" alt="">` +
           `<svg class="curseg-path" viewBox="0 0 ${im.vw} ${im.vh}" preserveAspectRatio="none">` +
           `<polyline points="${pts}" fill="none" stroke="rgba(0,0,0,.55)" stroke-width="4" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>` +
@@ -214,33 +278,17 @@ function renderTracks(trace, rid, images) {
           `</svg></div>`
         );
       }
-      const h = Math.max(y(s.end) - y(s.start), 6);
-      if (top < cbBottom) top = cbBottom;
-      cbBottom = top + h + 3;
       const dens = Math.min(1, s.pts.length / 24);
       return `<div class="cur" style="top:${top}px;height:${h}px;opacity:${(0.35 + 0.55 * dens).toFixed(2)}" data-rid="${esc(rid)}" data-cseg="${i}" title="${s.pts.length} points"></div>`;
     })
     .join("");
-  traceCache.set(rid, { beh, cog, cseg, images: images || [] }); // for the popups
 
-  // Greedy de-overlap within a lane: keep chronological order, nudge an item
-  // down only if it would collide. Exact time stays legible on each item's
-  // label, so the nudge never hides when something happened.
-  function place(items, top, height) {
-    let last = -Infinity;
-    return items.map((it) => {
-      let t = Math.max(top(it), 0);
-      if (t < last) t = last;
-      const h = height(it);
-      last = t + h + 2;
-      return { it, top: t, h };
-    });
-  }
   // Each item carries data-rid/idx so a click resolves it to its full record
   // in the popup. Labels truncate with an explicit … ; the full text is in the
   // popup, so nothing is silently clipped.
-  const marks = place(beh, (e) => y(e.t), () => 20)
-    .map(({ it: e, top }, i) => {
+  const marks = items
+    .filter((x) => x.kind === "b")
+    .map(({ e, i, top }) => {
       const name = e.anchor?.name || e.anchor?.selector || "";
       const t = (e.t / 1000).toFixed(1);
       const flags =
@@ -250,20 +298,22 @@ function renderTracks(trace, rid, images) {
       return `<div class="mk${e.inferred ? " mk-inf" : ""}" style="top:${top}px" data-rid="${esc(rid)}" data-kind="b" data-idx="${i}">${label}</div>`;
     })
     .join("");
-  const utts = place(cog, (u) => y(u.t), (u) => Math.max(y(u.end) - y(u.t), 20))
-    .map(({ it: u, top, h }, i) => {
-      const lines = Math.max(1, Math.floor(h / 17)); // clamp to what fits; … on overflow
-      return `<div class="utt" style="top:${top}px;height:${h}px;-webkit-line-clamp:${lines}" data-rid="${esc(rid)}" data-kind="c" data-idx="${i}">${esc(u.text)}</div>`;
-    })
+  const utts = items
+    .filter((x) => x.kind === "n")
+    .map(({ u, i, top, h, lines }) =>
+      `<div class="utt" style="top:${top}px;height:${h}px;-webkit-line-clamp:${lines}" data-rid="${esc(rid)}" data-kind="c" data-idx="${i}">${esc(u.text)}</div>`
+    )
     .join("");
 
-  // Time: labels in the left rail, dashed gridlines across every lane.
+  // Time: labels in the left rail, dashed gridlines across every lane. The
+  // axis is non-uniform by design, so the spacing between labels is itself
+  // information — bursts of activity read as stretched stretches of rail.
   const stepSec = lastT > 240000 ? 60 : lastT > 120000 ? 30 : lastT > 30000 ? 10 : lastT > 10000 ? 5 : 2;
   let railLabels = "", gridLines = "";
   for (let s = 0; s * 1000 <= lastT; s += stepSec) {
-    const yy = y(s * 1000);
-    railLabels += `<div class="tk" style="top:${yy}px">${s}s</div>`;
-    gridLines += `<div class="gl" style="top:${yy}px"></div>`;
+    const yt = y(s * 1000);
+    railLabels += `<div class="tk" style="top:${yt}px">${s}s</div>`;
+    gridLines += `<div class="gl" style="top:${yt}px"></div>`;
   }
 
   const raw = `<details class="raw"><summary>raw trace JSON</summary><pre>${esc(JSON.stringify(trace, null, 2))}</pre></details>`;
@@ -307,8 +357,15 @@ document.getElementById("sessions").addEventListener("click", (e) => {
     e.preventDefault();
     const p = copyBtn.getAttribute("data-path");
     const rid = copyBtn.getAttribute("data-rid");
+    const ts = copyBtn.getAttribute("data-tstatus") || "";
+    // Same contract as the on-stop reference in background.js: the text must
+    // describe what is actually in the bundle, never what usually is.
+    const warn =
+      ts && ts !== "ok"
+        ? ` WARNING — TRANSCRIPT FAILED: ${ts}. The narration track is empty or incomplete, so do NOT read a short/absent cognitive[] as the operator having stayed silent. The raw audio is in audio/ and trace.json records per-segment status in transcript_segments. Please tell me this happened.`
+        : "";
     const ref = p
-      ? `Read the browser recording at ${p} — an imitation-learning rollout of an expert doing a task. trace.json holds four tracks on one shared clock (behavior, cursor, images, narration); SCHEMA_v0.md in that folder is the field reference, and images/ holds the frames.`
+      ? `Read the browser recording at ${p} — an imitation-learning rollout of an expert doing a task. trace.json holds four tracks on one shared clock (behavior, cursor, images, narration); SCHEMA_v0.md in that folder is the field reference, and images/ holds the frames.${warn}`
       : `Recording ${rid} was not written to disk; open it in the Open Claude in Chrome extension Options to inspect.`;
     navigator.clipboard.writeText(ref).then(() => {
       copyBtn.textContent = "Copied";

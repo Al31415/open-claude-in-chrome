@@ -17,3 +17,6 @@ benchmark/environments/
 benchmark/logs/
 benchmark/throttle_evidence/
 benchmark/__pycache__/
+
+# personal research data — never commit
+DO_NOT_COMMIT/

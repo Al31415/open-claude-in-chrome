@@ -1351,15 +1351,23 @@ async function getApiKey() {
 
 // Validate the key BEFORE any recording — a recording with no transcript path
 // is a poor outcome, so we fail fast (§5).
+//
+// This deliberately runs a REAL transcription of a 0.3s clip (in the offscreen
+// document, which owns transcribe.js) rather than calling /v1/models. That
+// endpoint returns 200 for a key whose credit balance is exhausted, so it once
+// green-lit a 43-minute narrated recording that could never be transcribed.
+// Authentication is not capability.
 async function validateKey(apiKey) {
   if (!apiKey) return { ok: false, error: "No OpenAI API key set. Add one in the extension options." };
   try {
-    const res = await fetch("https://api.openai.com/v1/models", {
-      headers: { Authorization: `Bearer ${apiKey}` }
+    await ensureOffscreen();
+    const r = await chrome.runtime.sendMessage({
+      __ocic_offscreen: true,
+      cmd: "probe_key",
+      apiKey
     });
-    if (res.ok) return { ok: true };
-    if (res.status === 401) return { ok: false, error: "OpenAI API key is invalid." };
-    return { ok: false, error: `OpenAI returned ${res.status}.` };
+    if (r && r.ok) return { ok: true };
+    return { ok: false, error: (r && r.error) || "OpenAI transcription is unavailable." };
   } catch (e) {
     return { ok: false, error: `Could not reach OpenAI: ${e.message}` };
   }
@@ -1381,11 +1389,21 @@ function setProcessingBadge(title) {
 // A paste-able reference to a saved recording — the same text the Options
 // "Copy reference" button produces. Copied to the clipboard on stop so you can
 // paste it straight into Claude Code, regardless of any channel.
-function buildRecordingReference(path) {
-  return (
+// `transcriptStatus` is "ok" or a reason. The reference must never claim a
+// narration track it doesn't have: the whole point of pasting this into a
+// coding agent is that the text describes what is ACTUALLY in the bundle.
+function buildRecordingReference(path, transcriptStatus) {
+  const base =
     `Read the browser recording at ${path} — an imitation-learning rollout of an expert doing a task. ` +
     `trace.json holds four tracks on one shared clock (behavior, cursor, images, narration); ` +
-    `SCHEMA_v0.md in that folder is the field reference, and images/ holds the frames.`
+    `SCHEMA_v0.md in that folder is the field reference, and images/ holds the frames.`;
+  if (!transcriptStatus || transcriptStatus === "ok") return base;
+  return (
+    base +
+    ` WARNING — TRANSCRIPT FAILED: ${transcriptStatus}. The narration track is empty or incomplete, ` +
+    `so do NOT read a short/absent cognitive[] as the operator having stayed silent. ` +
+    `The raw audio is in audio/ and trace.json records per-segment status in transcript_segments. ` +
+    `Please tell me this happened.`
   );
 }
 
@@ -1418,12 +1436,21 @@ function scheduleBadgeClear() {
     }
   }, 4000);
 }
-function showResultBadge(kind) {
+function showResultBadge(kind, detail) {
   if (kind === "failed") {
     chrome.action.setBadgeText({ text: "✗" });
     chrome.action.setBadgeBackgroundColor({ color: "#d23b2e" });
     chrome.action.setTitle({
       title: "Could not save the recording — is the native host installed? Run ./install.sh."
+    });
+  } else if (kind === "no_transcript") {
+    // The recording IS saved — but its narration is missing or partial, which
+    // for a teaching rollout is most of the value. It gets its own badge so it
+    // can never be mistaken for the clean success state.
+    chrome.action.setBadgeText({ text: "⚠" });
+    chrome.action.setBadgeBackgroundColor({ color: "#a5701a" });
+    chrome.action.setTitle({
+      title: `Recording saved WITHOUT narration — ${detail}. Reference copied; the audio is on disk in audio/.`
     });
   } else {
     // "copied" — the reference is on your clipboard. Delivery-to-Claude info
@@ -1531,8 +1558,9 @@ async function stopRecording() {
     return { ok: false, error: res && res.error };
   }
   const { bundle } = res;
-  // 1) Persist to disk FIRST (reliability). Show the SAVE result immediately —
-  // it must not wait on the up-to-12s Claude ack below.
+  // 1) Persist to disk FIRST (reliability), before anything that can fail over
+  // the network. The trace lands with transcript_status "pending" so the bundle
+  // exists even if the steps below never complete.
   const path = await saveBundleToDisk(bundle).catch((e) => {
     console.error("save failed", e);
     return null;
@@ -1541,14 +1569,42 @@ async function stopRecording() {
     if (live()) showResultBadge("failed");
     return { ok: false, error: "save failed" };
   }
-  // 2) Copy the reference to the clipboard immediately — the primary, channel-
-  // independent feedback. Then show the clipboard icon.
-  await copyToClipboard(buildRecordingReference(path));
+  // 2) The AUDIO goes to disk next — still before transcription. This is the
+  // one artifact that makes a failed transcript recoverable, and it used to
+  // live only inside the browser profile where nothing could reach it.
+  setProcessingBadge("Processing recording… (saving audio)");
+  await saveAudioToDisk(bundle).catch((e) => console.error("audio save failed", e));
+
+  // 3) Transcribe, segment by segment. A failure here is reported, never
+  // swallowed: it reaches the trace, the badge, the clipboard and Claude.
+  setProcessingBadge("Processing recording… (transcribing)");
+  const tr = await chrome.runtime
+    .sendMessage({ __ocic_offscreen: true, cmd: "transcribe" })
+    .catch((e) => ({ ok: false, error: String(e && e.message) }));
+  const transcriptStatus =
+    tr && tr.ok ? tr.transcript_status : `failed: ${(tr && tr.error) || "transcription did not run"}`;
+  if (tr && tr.ok) {
+    bundle.trace.cognitive = tr.cognitive || [];
+    bundle.trace.transcript_segments = tr.transcript_segments || [];
+    if (tr.summary) bundle.summary = tr.summary;
+  }
+  bundle.trace.transcript_status = transcriptStatus;
+  bundle.transcriptStatus = transcriptStatus;
+  // Re-save the trace now that narration (or the reason there is none) is known.
+  await saveBundleToDisk(bundle).catch((e) => console.error("re-save failed", e));
+
+  // 4) Copy the reference to the clipboard — the primary, channel-independent
+  // feedback. On a transcript failure the text says so, so pasting it into a
+  // coding agent surfaces the problem instead of hiding it.
+  await copyToClipboard(buildRecordingReference(path, transcriptStatus));
   // Hold the "…" long enough to be SEEN even when the pipeline was instant
   // (no audio -> no transcription): the stages must read consistently.
   const hold = 800 - (Date.now() - tProc);
   if (hold > 0) await sleep(hold);
-  if (live()) showResultBadge("copied");
+  if (live()) {
+    if (transcriptStatus === "ok") showResultBadge("copied");
+    else showResultBadge("no_transcript", transcriptStatus);
+  }
   recorder.busy = false; // reference on the clipboard: the icon is live again
   // Record the on-disk path on the session so the Options viewer can copy it too.
   chrome.runtime
@@ -1566,19 +1622,50 @@ async function stopRecording() {
         : connectionState === "sent_unconfirmed"
           ? " Sent to Claude — delivery not confirmed."
           : " No Claude Code session connected.";
-    chrome.action.setTitle({
-      title: "Recording saved · reference copied to clipboard — paste it into Claude Code." + deliv
-    });
+    const head =
+      transcriptStatus === "ok"
+        ? "Recording saved · reference copied to clipboard — paste it into Claude Code."
+        : `Recording saved WITHOUT narration — ${transcriptStatus}. Reference copied (it says so); audio is on disk in audio/.`;
+    chrome.action.setTitle({ title: head + deliv });
   }
-  return { ok: true, path, connectionState };
+  return { ok: true, path, connectionState, transcriptStatus };
+}
+
+// Pull each audio segment back out of the offscreen document in slices and
+// write it through the native host. Runs BEFORE transcription, so the raw
+// narration is durable on disk no matter what the network does afterwards.
+// Slices because runtime messages are JSON — a whole segment in one message
+// would be needlessly large.
+const AUDIO_SLICE_BYTES = 768 * 1024; // ~1MB once base64-encoded
+async function saveAudioToDisk(bundle) {
+  if (!nativePort || !bundle.audioSegments) return;
+  for (const seg of bundle.audioSegments) {
+    for (let start = 0; start < seg.size; start += AUDIO_SLICE_BYTES) {
+      const r = await chrome.runtime.sendMessage({
+        __ocic_offscreen: true,
+        cmd: "audio_slice",
+        index: seg.index,
+        start,
+        len: AUDIO_SLICE_BYTES
+      });
+      if (!r || !r.ok) throw new Error((r && r.error) || "audio slice failed");
+      nativePort.postMessage({
+        type: "save_audio",
+        recording_id: bundle.recording_id,
+        name: seg.name,
+        b64: r.b64,
+        append: start > 0
+      });
+    }
+  }
 }
 
 // Disk write goes through the NATIVE HOST (a Node process with fs), not
 // chrome.downloads — the browser download path pops an OS "save as" dialog on
 // some setups even with saveAs:false, and this writes to a stable location
 // (~/.config/open-claude-in-chrome/recordings/<id>/) the agent can open.
-// trace.json is small text; audio stays in IndexedDB. Returns the absolute
-// directory, or null if the native host isn't reachable.
+// trace.json is small text; the audio goes through save_audio (above) into
+// audio/. Returns the absolute directory, or null if the host isn't reachable.
 async function saveBundleToDisk(bundle) {
   if (!nativePort) return null;
   const schemaMd = await getSchemaMd();
@@ -1628,7 +1715,8 @@ async function notifyClaude(bundle, path) {
       recording_id: bundle.recording_id,
       path: path || "",
       schema: bundle.schema,
-      summary: bundle.summary
+      summary: bundle.summary,
+      transcript_status: bundle.transcriptStatus || "ok"
     });
   } catch {
     return "no_session";

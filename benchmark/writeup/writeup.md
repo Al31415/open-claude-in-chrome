@@ -1,4 +1,5 @@
 (AI usage note: this writeup was written by hand with the exception of the graph labels.)
+(Fun fact: this entire study cost me 0$, all of it was funded by my Claude Max subscription (also explains the dataset size).)
 # The Case for Browser Agents
 Browser agents are about to take center stage, yet most people reading this are likely going to miss it.
 I assume my readers are highly technical so the right answer for when to use a browser agent essentially boils down to "As a last resort. If the MCP fails and the API fails and we can't build our own API for them then and only then should I use a browser agent."

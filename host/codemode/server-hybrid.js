@@ -170,7 +170,10 @@ async function main() {
       event: "recording_complete",
       recording_id: String(msg.recording_id ?? ""),
       path: String(msg.path ?? ""),
-      schema: String(msg.schema ?? "v0")
+      schema: String(msg.schema ?? "v0"),
+      // "ok", or why the narration track is empty/incomplete. Present so a
+      // failed transcript is machine-readable, not just prose in the summary.
+      transcript_status: String(msg.transcript_status ?? "ok")
     };
     const content =
       typeof msg.summary === "string" && msg.summary

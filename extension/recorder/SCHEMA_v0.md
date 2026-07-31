@@ -13,10 +13,16 @@ the image track.
 ```
 <recording_id>/
   trace.json     — the four tracks (this schema)
-  audio.webm     — the raw narration (source of the cognitive track)
+  audio/         — the raw narration, in segments (000.webm, 001.webm, ...)
   images/        — 240p frames referenced by the image track (00001.jpg, ...)
   SCHEMA_v0.md   — this file
 ```
+
+The audio is written in ~10-minute segments, each a complete, independently
+decodable WebM. They are recorded back-to-back from one continuous microphone
+stream, so together they are the whole session; each is anchored to the shared
+clock by `transcript_segments[].t` below. They are written to disk **before**
+transcription is attempted, so a failed transcript is always recoverable.
 
 Nothing is forced on you: the tracks and the images are just data on a shared
 clock. Read whichever tracks, and open whichever frames, you actually need.
@@ -33,9 +39,26 @@ clock. Read whichever tracks, and open whichever frames, you actually need.
   "behavior":  [ ... ],          // Track A — discrete actions
   "cursor":    [ ... ],          // Track C — raw cursor trajectory
   "images":    [ ... ],          // Track D — frame references
-  "cognitive": [ ... ]           // Track B — narration
+  "cognitive": [ ... ],          // Track B — narration
+
+  // Whether Track B can be trusted. READ THIS BEFORE READING cognitive[].
+  "transcript_status": "ok" | "failed: <reason>" | "partial: <reason>",
+  "transcript_segments": [       // one per audio segment, on the shared clock
+    { "index": 0, "t": <ms>, "status": "ok" | "failed: <reason>" }
+  ]
 }
 ```
+
+**An empty `cognitive[]` is not evidence of a silent operator.** It means one
+of two very different things, and `transcript_status` is the only way to tell
+them apart:
+
+- `"ok"` → the operator genuinely did not speak in that window.
+- anything else → narration was captured but not transcribed. The audio is in
+  `audio/`; `transcript_segments` says which spans are missing and why.
+
+The same applies to a *gap* in `cognitive[]`: check whether the segment
+covering that span has `status: "ok"` before concluding it was quiet.
 
 **The three tracks are independent and overlap.** They are NOT interleaved into
 one list — the operator talks *while* acting and *while* moving the cursor.
