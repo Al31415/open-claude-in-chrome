@@ -110,10 +110,14 @@ One flow, top to bottom, turns everything on — all 18 browser tools,
 ### Step 1: Install dependencies
 
 ```bash
-cd host
-npm install
-cd ..
+npm install --prefix host
+npm install --prefix host/codemode/worker
 ```
+
+The second one is not optional: it provisions the sandbox that `execute_code`
+runs in. Skip it and the server falls back to fetching wrangler over the network
+on every cold start, which is the most common reason `execute_code` fails to
+come up.
 
 ### Step 2: Load the extension
 
@@ -168,11 +172,78 @@ Accept the one-time prompt and keep the session open — channels inject into a
 live interactive session, not `claude -p`. That's it: browser automation and
 recording are both on.
 
-<details>
-<summary>Other server variants (optional)</summary>
+## Verification
 
-The hybrid server above is the superset. Two leaner variants exist if you want
-them (they can coexist; register more than one):
+Start a new Claude Code session and run both checks.
+
+**1. Browser control** — confirms the extension, native host and MCP server are wired up:
+
+```
+Navigate to reddit.com and take a screenshot
+```
+
+Reddit loads. No domain restriction.
+
+**2. The `execute_code` sandbox** — confirms the wrangler sidecar is live:
+
+```
+In a single execute_code call: create a new tab, navigate to reddit.com, click
+the first post, then go back to the listing and give me every post title except
+the top three.
+```
+
+You should get the titles back from **one** tool call rather than a
+click-screenshot-click sequence. If the first attempt reports the sandbox is
+still starting, wait a few seconds and ask again — the sidecar boots in the
+background and the first call can arrive before it is ready. If it never comes
+up, see [Keeping `execute_code` running](#keeping-execute_code-running).
+
+## Keeping `execute_code` running
+
+**Where it runs.** `execute_code` evaluates your JavaScript in a Cloudflare
+Worker (a V8 isolate) hosted by a `workerd` sidecar that the MCP server starts
+with `wrangler dev`. That sidecar is a **child process of the MCP server**,
+which Claude Code itself spawns. There is no separate daemon, nothing to start
+by hand, and nothing that outlives Claude Code. It binds `127.0.0.1` on a free
+port, runs out of `host/codemode/worker`, and keeps its state in a per-variant,
+per-PID directory under your temp dir so the codemode and hybrid servers can run
+at the same time without racing each other.
+
+**Its lifetime is the MCP server's lifetime.** It is spawned in the background
+at server start so MCP startup never blocks on it (budget: 60s to boot,
+typically 3–5s), and it is torn down on SIGTERM/SIGINT/exit and when Claude Code
+closes the stdio pipe. So restarting or reconnecting the MCP server always gives
+you a fresh sidecar.
+
+**There is no health check and no auto-restart.** If the sidecar dies
+mid-session, `execute_code` stays down until the MCP server restarts. That is
+the behaviour to recognise: browser tools still work, only `execute_code` fails.
+
+To keep it reliable:
+
+1. **Install the worker's dependencies** (Step 1, or `./install.sh`). Without
+   `host/codemode/worker/node_modules` the server falls back to
+   `npx --yes wrangler`, which needs the network on every cold start. This is
+   the single most common cause of a sandbox that "sometimes isn't there".
+2. **Recover with `/mcp`** in Claude Code. Reconnecting restarts the MCP server,
+   which respawns the sidecar.
+3. **If that doesn't take, clear strays and reconnect:**
+   ```bash
+   pkill -f "server-hybrid|server-codemode"; pkill -f wrangler
+   ```
+4. **Confirm it's up.** The server logs `[wrangler] Ready on http://127.0.0.1:<port>`
+   and then `sandbox prewarmed in <n>ms`. `pgrep -fl wrangler` should show one
+   process per registered codemode/hybrid server.
+5. **Expect partial degradation, not failure.** If the sandbox never comes up the
+   18 passthrough tools keep working and only `execute_code` errors, so a broken
+   sidecar looks like "code mode stopped working", not "the browser stopped
+   working".
+
+## Server variants
+
+The hybrid server from Step 6 is the superset and the one the install steps
+assume. Two leaner variants exist if you want them, and they can coexist —
+register more than one.
 
 **Default** — the 18 tools, nothing else:
 ```bash
@@ -184,18 +255,8 @@ claude mcp add open-claude-in-chrome -- node /absolute/path/to/host/mcp-server.j
 claude mcp add open-claude-in-chrome-codemode -- node /absolute/path/to/host/codemode/server-codemode.js
 ```
 
-The first call on either codemode/hybrid variant pays a one-time ~3–5s cost while `wrangler dev` boots the sandbox; subsequent calls are fast. The Workerd sidecar is spawned and torn down with the MCP server. These variants depend on `npx wrangler`, pulled automatically on first launch. Recording is only on the hybrid server.
-</details>
+Both of these carry the same sandbox as hybrid, so [Keeping `execute_code` running](#keeping-execute_code-running) applies to them too. Recording is only on the hybrid server.
 
-## Verification
-
-Start a new Claude Code session and test:
-
-```
-Navigate to reddit.com and take a screenshot
-```
-
-Reddit loads. No domain restriction.
 
 ## Imitation Learning (Recording)
 
