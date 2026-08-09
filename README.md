@@ -44,7 +44,7 @@ The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extensio
 | **Browser support** | Chrome and Edge only | Any Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.) |
 | **Source code** | Closed source | Open source (MIT) |
 | **Tools** | 18 MCP tools | Same 18 MCP tools |
-| **Performance** | Baseline | Identical |
+| **Performance** | Baseline | Statistically indistinguishable cold, and [measurably better](#does-it-actually-match-the-official-extension) with the techniques the open harness allows |
 
 ### Blocked Domains in the Official Extension
 
@@ -63,6 +63,41 @@ The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extensio
 | Social Media | Reddit |
 
 Open Claude in Chrome has **none of these restrictions**.
+
+## Does it actually match the official extension?
+
+Yes — and rather than assert it, here is a benchmark. **[Read the full study →](benchmark/writeup/writeup.md)**
+
+<p align="center">
+<img src="docs/img/parity.png" alt="Turns per task against suite latency: the official extension and this harness cold are ringed together as statistically indistinguishable, with an arrow to this harness's best method showing 23% fewer turns and 15% less time" width="820">
+</p>
+
+17 arms, each run over the same 12 held-out tasks from the
+[REAL](https://github.com/agi-inc/REAL) web-agent benchmark, same model and
+effort throughout (Sonnet, medium). What it found:
+
+- **Parity, out of the box.** The official extension and this harness, both cold,
+  are statistically indistinguishable: 2.04 vs 1.95 min/task and 31.4 vs 32.6
+  turns, at p=0.44 and p=0.67 on a paired permutation test, with identical
+  accuracy. They differ only in per-action overhead — **0.31s vs 0.12s** per
+  browser action, 2.7× less.
+- **A higher ceiling.** The best method in the study lands **23% fewer turns and
+  15% less time** than the official extension, at 11/12 tasks passed against
+  8/12. Distil prior runs into a short per-site recipe, put it in the task
+  prompt, and start from a warmed-up session.
+- **What actually helps.** Mounting raw prior experience on disk costs more than
+  it returns (the agent spends 3.5× longer before its first browser action);
+  compressing it into the prompt is what pays. Context is the dominant latency
+  term at **+1.9s per turn per 100k tokens**, so more context is not free.
+- **Recordings.** This harness records raw, four-track browser traces and defers
+  the analysis; Claude Cowork analyses each recording at capture time and keeps
+  only the result. Distilled the same way by the same model, the raw recordings
+  win both regimes — **6.6 fewer turns and 6.4 fewer minutes** when the material
+  has to fit in a prompt (p=0.012, p=0.008).
+
+Caveats are in the writeup, not hidden: the task set saturates, one task's
+grading is ambiguous, and repeat runs of an identical configuration vary by
+10–20%, so treat single-digit differences as noise.
 
 ## Architecture
 
