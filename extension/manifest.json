@@ -21,22 +21,31 @@
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "action": {
-    "default_title": "Open Claude in Chrome — click to start/stop recording"
+    "default_title": "Open Claude in Chrome \u2014 click to start/stop recording"
   },
   "options_page": "recorder/options.html",
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
       "run_at": "document_idle",
       "all_frames": false
     },
     {
-      "matches": ["<all_urls>"],
-      "js": ["recorder/capture.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "recorder/capture.js"
+      ],
       "run_at": "document_start",
       "all_frames": true
     }

@@ -109,9 +109,14 @@
       if (names.length) return names.join(" ");
     }
 
-    if (el.placeholder) return el.placeholder.trim();
-    if (el.title) return el.title.trim();
-    if (el.alt) return el.alt.trim();
+    // typeof guards: a <form> (or <fieldset>) exposes its named controls as
+    // properties via a [LegacyOverrideBuiltIns] named getter, so an
+    // <input name="title"> makes form.title the ELEMENT, not the string —
+    // and .trim() on it throws, taking down read_page/find for the whole
+    // page. Same shadowing applies to placeholder and alt.
+    if (typeof el.placeholder === "string" && el.placeholder) return el.placeholder.trim();
+    if (typeof el.title === "string" && el.title) return el.title.trim();
+    if (typeof el.alt === "string" && el.alt) return el.alt.trim();
 
     // Associated <label>
     if (el.id) {
@@ -310,10 +315,14 @@
       const role = getRole(el) || "";
       const name = getAccessibleName(el) || "";
       const text = el.textContent?.trim()?.substring(0, 200) || "";
-      const placeholder = el.placeholder || "";
+      // Coerce to "" unless it's really a string: a form control named
+      // title/placeholder/type shadows the built-in property with an ELEMENT,
+      // which would stringify to "[object HTMLInputElement]" and silently
+      // pollute matching (see the typeof guards in getAccessibleName).
+      const placeholder = typeof el.placeholder === "string" ? el.placeholder : "";
       const ariaLabel = el.getAttribute("aria-label") || "";
-      const title = el.title || "";
-      const type = el.type || "";
+      const title = typeof el.title === "string" ? el.title : "";
+      const type = typeof el.type === "string" ? el.type : "";
 
       const searchable = `${role} ${name} ${text} ${placeholder} ${ariaLabel} ${title} ${type} ${tag}`.toLowerCase();
 

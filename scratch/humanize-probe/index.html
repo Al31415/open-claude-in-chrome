@@ -1,0 +1,165 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>OCIC humanization probe</title>
+<style>
+  body { font: 14px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 16px 20px; background: #f7f7f5; color: #1c1e22; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .sub { color: #5b5f66; font-size: 12px; margin: 0 0 14px; }
+  .row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+  .card { background: #fff; border: 1px solid #e2e2dd; border-radius: 10px; padding: 14px; }
+  #target { width: 150px; height: 46px; font: inherit; font-weight: 600; cursor: pointer;
+            background: #2a5fd8; color: #fff; border: none; border-radius: 8px; }
+  #hoverbox { width: 150px; height: 46px; display: grid; place-items: center;
+              border: 1px dashed #9aa0a8; border-radius: 8px; }
+  #hoverbox.on { background: #e4f4ee; border-color: #0e8a5f; }
+  input, textarea { font: inherit; padding: 8px 10px; border: 1px solid #e2e2dd; border-radius: 7px; width: 260px; }
+  canvas { border: 1px solid #e2e2dd; border-radius: 8px; background: #fff; display: block; }
+  pre { background: #15171b; color: #e8eaee; padding: 10px; border-radius: 8px; font-size: 11px;
+        max-height: 230px; overflow: auto; margin: 8px 0 0; }
+  .stat { font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .scrollbox { height: 90px; width: 260px; overflow-y: scroll; border: 1px solid #e2e2dd; border-radius: 7px; background: #fff; }
+  .scrollbox div { height: 40px; padding: 6px 10px; border-bottom: 1px solid #f0f0ec; }
+</style>
+
+<h1>OCIC humanization probe</h1>
+<p class="sub">Records every input event the page actually receives, so humanized and non-humanized runs can be compared on evidence rather than impression. <code>window.__probe</code> holds the raw data; <code>window.__probeStats()</code> summarizes it.</p>
+
+<div class="row">
+  <div class="card">
+    <div class="row" style="gap:10px">
+      <button id="target">Click me</button>
+      <div id="hoverbox">hover me</div>
+    </div>
+    <div style="margin-top:10px">
+      <input id="text" placeholder="type here" autocomplete="off">
+    </div>
+    <div style="margin-top:10px">
+      <div class="scrollbox" id="scrollbox"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="stat" id="stats">moves 0 · clicks 0 · keys 0 · wheel 0</div>
+    <canvas id="trail" width="520" height="300"></canvas>
+    <div class="sub" style="margin:6px 0 0">cursor trail — green = first sample, red = latest</div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:14px">
+  <strong style="font-size:13px">Live event log</strong>
+  <pre id="log"></pre>
+</div>
+
+<script>
+const probe = {
+  moves: [],      // {t, x, y}
+  clicks: [],     // {t, x, y, detail, button, isTrusted}
+  downs: [], ups: [],
+  keys: [],       // {t, type, key, code, repeat, isTrusted}
+  wheels: [],     // {t, dx, dy}
+  hovers: [],     // {t, type}
+  input: []       // {t, value}
+};
+window.__probe = probe;
+const t0 = performance.now();
+const now = () => Math.round(performance.now() - t0);
+
+const logEl = document.getElementById('log');
+const lines = [];
+function log(s) { lines.push(s); if (lines.length > 200) lines.shift(); logEl.textContent = lines.join('\n'); logEl.scrollTop = logEl.scrollHeight; }
+
+const cv = document.getElementById('trail').getContext('2d');
+function drawTrail() {
+  const pts = probe.moves;
+  cv.clearRect(0, 0, 520, 300);
+  if (!pts.length) return;
+  const xs = pts.map(p=>p.x), ys = pts.map(p=>p.y);
+  const minx = Math.min(...xs), maxx = Math.max(...xs), miny = Math.min(...ys), maxy = Math.max(...ys);
+  const pad = 14, sx = (maxx-minx)||1, sy = (maxy-miny)||1;
+  const sc = Math.min((520-2*pad)/sx, (300-2*pad)/sy);
+  const mx = x => pad + (x-minx)*sc, my = y => pad + (y-miny)*sc;
+  cv.strokeStyle = '#2a5fd8'; cv.lineWidth = 1.5; cv.beginPath();
+  pts.forEach((p,i) => i ? cv.lineTo(mx(p.x), my(p.y)) : cv.moveTo(mx(p.x), my(p.y)));
+  cv.stroke();
+  cv.fillStyle = '#c9ccd1';
+  for (const p of pts) { cv.beginPath(); cv.arc(mx(p.x), my(p.y), 1.6, 0, 6.3); cv.fill(); }
+  const a = pts[0], b = pts[pts.length-1];
+  cv.fillStyle = '#0e8a5f'; cv.beginPath(); cv.arc(mx(a.x), my(a.y), 4.5, 0, 6.3); cv.fill();
+  cv.fillStyle = '#d23b2e'; cv.beginPath(); cv.arc(mx(b.x), my(b.y), 4.5, 0, 6.3); cv.fill();
+}
+
+function stats() {
+  document.getElementById('stats').textContent =
+    `moves ${probe.moves.length} · clicks ${probe.clicks.length} · keys ${probe.keys.filter(k=>k.type==='keydown').length} · wheel ${probe.wheels.length}`;
+}
+
+addEventListener('mousemove', e => {
+  probe.moves.push({ t: now(), x: e.clientX, y: e.clientY });
+  if (probe.moves.length % 4 === 0) { drawTrail(); stats(); }
+}, true);
+
+document.getElementById('target').addEventListener('click', e => {
+  probe.clicks.push({ t: now(), x: e.clientX, y: e.clientY, detail: e.detail, button: e.button, isTrusted: e.isTrusted });
+  log(`click #${probe.clicks.length} @(${e.clientX},${e.clientY}) detail=${e.detail} trusted=${e.isTrusted}`);
+  stats();
+});
+addEventListener('mousedown', e => probe.downs.push({ t: now(), x: e.clientX, y: e.clientY }), true);
+addEventListener('mouseup',   e => probe.ups.push({ t: now(), x: e.clientX, y: e.clientY }), true);
+
+const hb = document.getElementById('hoverbox');
+hb.addEventListener('mouseenter', () => { hb.classList.add('on'); probe.hovers.push({t:now(),type:'enter'}); log('hover enter'); });
+hb.addEventListener('mouseleave', () => { hb.classList.remove('on'); probe.hovers.push({t:now(),type:'leave'}); log('hover LEAVE'); });
+
+const ti = document.getElementById('text');
+for (const ev of ['keydown','keyup']) {
+  ti.addEventListener(ev, e => {
+    probe.keys.push({ t: now(), type: ev, key: e.key, code: e.code, repeat: e.repeat, isTrusted: e.isTrusted });
+    if (ev === 'keydown') log(`keydown "${e.key}" code=${e.code} repeat=${e.repeat}`);
+    stats();
+  });
+}
+ti.addEventListener('input', e => probe.input.push({ t: now(), value: e.target.value }));
+
+addEventListener('wheel', e => { probe.wheels.push({ t: now(), dx: e.deltaX, dy: e.deltaY }); log(`wheel dy=${e.deltaY}`); stats(); }, true);
+
+const sb = document.getElementById('scrollbox');
+for (let i = 0; i < 40; i++) { const d = document.createElement('div'); d.textContent = 'row ' + (i+1); sb.appendChild(d); }
+
+// Summary the test harness reads back in one call.
+window.__probeStats = function () {
+  const gaps = (arr) => arr.slice(1).map((p,i)=>p.t-arr[i].t).filter(g=>g>=0);
+  const uniq = (a) => Array.from(new Set(a));
+  const sd = (a) => { if (a.length<2) return 0; const m=a.reduce((x,y)=>x+y,0)/a.length;
+    return Math.sqrt(a.reduce((s,v)=>s+(v-m)*(v-m),0)/a.length); };
+  const kd = probe.keys.filter(k=>k.type==='keydown');
+  const moveGaps = gaps(probe.moves);
+  const keyGaps = gaps(kd);
+  return JSON.stringify({
+    moves: probe.moves.length,
+    distinctMovePoints: uniq(probe.moves.map(p=>p.x+':'+p.y)).length,
+    moveGapSdMs: Math.round(sd(moveGaps)),
+    clicks: probe.clicks.length,
+    clickPoints: probe.clicks.map(c=>[c.x,c.y]),
+    clicksTrusted: probe.clicks.every(c=>c.isTrusted),
+    downs: probe.downs.length, ups: probe.ups.length,
+    keydowns: kd.length,
+    keyups: probe.keys.filter(k=>k.type==='keyup').length,
+    keyRepeats: kd.filter(k=>k.repeat).length,
+    keyCodesSeen: uniq(kd.map(k=>k.code)).slice(0,8),
+    keyGapSdMs: Math.round(sd(keyGaps)),
+    keysTrusted: kd.length ? kd.every(k=>k.isTrusted) : null,
+    wheelEvents: probe.wheels.length,
+    wheelTotalDy: probe.wheels.reduce((s,w)=>s+w.dy,0),
+    hoverEnters: probe.hovers.filter(h=>h.type==='enter').length,
+    hoverLeaves: probe.hovers.filter(h=>h.type==='leave').length,
+    finalText: (document.getElementById('text').value)
+  });
+};
+window.__probeReset = function () {
+  for (const k of Object.keys(probe)) probe[k].length = 0;
+  document.getElementById('text').value = '';
+  lines.length = 0; logEl.textContent = ''; cv.clearRect(0,0,520,300); stats();
+  return 'reset';
+};
+stats();
+</script>

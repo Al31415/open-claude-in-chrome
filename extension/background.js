@@ -1,6 +1,8 @@
 // Background service worker for Open Claude in Chrome extension.
 // Handles: native messaging, CDP via chrome.debugger, tool dispatch, tab group management.
 
+import * as humanize from "./humanize/index.js";
+
 // Prevent unhandled rejections from killing the service worker
 self.addEventListener("unhandledrejection", (event) => {
   event.preventDefault();
@@ -20,6 +22,22 @@ const networkRequests = new Map(); // tabId -> [{url, method, status, type, time
 const networkByRequestId = new Map();
 const screenshotStore = new Map(); // imageId -> base64
 const screenshotSaves = new Map(); // reqId -> { resolve, reject } for save_to_disk
+
+// Where the cursor currently is, PER TAB. Viewport coordinates are tab-local,
+// so a single global cursor would start a move in tab B from tab A's position
+// — meaningless, and anomalous in its own right. Seeded on first interaction,
+// dropped when the tab closes.
+const cursorByTab = new Map(); // tabId -> { x, y }
+
+// One humanization "hand" for the life of the service worker: a seeded rng
+// plus a persona (tempo, steadiness, overshoot). Reused across actions so a
+// session is internally consistent rather than re-rolling its character every
+// click. Lazily created — costs nothing when humanize is off.
+let humanSession = null;
+function human() {
+  if (!humanSession) humanSession = humanize.createSession();
+  return humanSession;
+}
 
 let heartbeatTimer = null;
 
@@ -210,8 +228,10 @@ async function ensureTabGroup(createIfEmpty) {
 
   if (!createIfEmpty) return;
 
-  // Create a new window with a tab, group it
-  const win = await chrome.windows.create({ focused: true, url: "about:blank" });
+  // Create a new window with a tab, group it. focused:false — the window is
+  // created and rendered, but does not jump in front of whatever the operator
+  // is doing. set_tab_focus raises it on purpose when that is actually wanted.
+  const win = await chrome.windows.create({ focused: false, url: "about:blank" });
   const tab = win.tabs[0];
   const groupId = await chrome.tabs.group({ tabIds: [tab.id] });
   await chrome.tabGroups.update(groupId, { title: "MCP", color: "blue" });
@@ -339,6 +359,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   consoleMessages.delete(tabId);
   networkRequests.delete(tabId);
   networkByRequestId.delete(tabId);
+  cursorByTab.delete(tabId);
+  // Drop any per-tab config override too: tab ids are recycled by the browser,
+  // so a stale override would silently apply to an unrelated future tab.
+  if (configState.byTab[String(tabId)]) {
+    const byTab = { ...configState.byTab };
+    delete byTab[String(tabId)];
+    configState.byTab = byTab;
+    chrome.storage.session.set({ [TAB_CONFIG_KEY]: byTab }).catch(() => {});
+  }
 });
 
 // Handle user dismissing debugger bar
@@ -631,6 +660,19 @@ async function mouseClick(tabId, x, y, opts = {}) {
   const clickCount = opts.clickCount || 1;
   const modifiers = opts.modifiers || 0;
 
+  // Humanized: approach along a curved path from wherever this tab's cursor
+  // actually is, land on the requested point, press/release with real dwell.
+  if (await humanizeOn(tabId)) {
+    const s = human();
+    const from = cursorByTab.get(tabId) || { x: Math.max(0, x - 220), y: Math.max(0, y - 160) };
+    await dispatchPlan(
+      tabId,
+      humanize.planClick(s, from, { x, y }, { button, clickCount, targetSize: opts.targetSize }),
+      modifiers
+    );
+    return;
+  }
+
   await dispatchMouse(tabId, "mouseMoved", x, y, { modifiers });
   // Brave's debugger pipeline needs a ~50ms settle window between dispatched
   // events (verified empirically); Chrome acks instantly, so the sleeps are
@@ -640,6 +682,152 @@ async function mouseClick(tabId, x, y, opts = {}) {
   await dispatchMouse(tabId, "mousePressed", x, y, { button, clickCount, modifiers });
   if (brave) await sleep(50);
   await dispatchMouse(tabId, "mouseReleased", x, y, { button, clickCount, modifiers });
+  cursorByTab.set(tabId, { x, y });
+}
+
+// --- Humanization config + plan execution -----------------------------------
+//
+// The behavioural modelling lives in extension/humanize/ (pure, no browser
+// APIs). Everything below is the thin seam: read the flag, walk a plan, map
+// each primitive step onto the CDP call the non-humanized path already uses.
+
+const CONFIG_KEY = "ocic_config_v1";       // { default: {...} } in local
+const TAB_CONFIG_KEY = "ocic_tab_config_v1"; // { [tabId]: {...} } in session
+
+// Recognized settings, and what they do when true. `get_config` reports this
+// catalog, so adding a setting later means adding one entry here and reading
+// effectiveConfig(tabId).<key> where it applies — set_config never changes.
+const CONFIG_SCHEMA = {
+  humanize:
+    "Drive mouse and keyboard the way a person would: curved cursor paths with " +
+    "acceleration and overshoot, clicks that land off-centre inside the target " +
+    "with a real press dwell, scrolls decomposed into momentum ticks, and typing " +
+    "with per-character keydown/keyup and human inter-key timing. Outcomes are " +
+    "identical (same element, same text, same scroll position) — only the motion " +
+    "and timing change, so actions take noticeably longer. Default false."
+};
+
+let configState = { default: { humanize: false }, byTab: {} };
+let configHydrated = null;
+
+async function hydrateConfig() {
+  try {
+    const local = await chrome.storage.local.get(CONFIG_KEY);
+    const session = await chrome.storage.session.get(TAB_CONFIG_KEY);
+    configState = {
+      default: { humanize: false, ...(local[CONFIG_KEY] || {}) },
+      byTab: session[TAB_CONFIG_KEY] || {}
+    };
+  } catch {}
+  return configState;
+}
+// MV3 evicts this worker, so re-hydrate at every start and keep the cache live.
+configHydrated = hydrateConfig();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[CONFIG_KEY]) {
+    configState.default = { humanize: false, ...(changes[CONFIG_KEY].newValue || {}) };
+  }
+  if (area === "session" && changes[TAB_CONFIG_KEY]) {
+    configState.byTab = changes[TAB_CONFIG_KEY].newValue || {};
+  }
+});
+
+/** Per-tab overrides win over the default. */
+function effectiveConfig(tabId) {
+  return { ...configState.default, ...(configState.byTab[String(tabId)] || {}) };
+}
+
+async function humanizeOn(tabId) {
+  await configHydrated;
+  return !!effectiveConfig(tabId).humanize;
+}
+
+async function writeConfig(key, value, tabId) {
+  await configHydrated;
+  if (tabId === undefined || tabId === null) {
+    const next = { ...configState.default };
+    if (value === null) delete next[key];
+    else next[key] = value;
+    configState.default = next;
+    await chrome.storage.local.set({ [CONFIG_KEY]: next });
+    return next;
+  }
+  const id = String(tabId);
+  const byTab = { ...configState.byTab };
+  const forTab = { ...(byTab[id] || {}) };
+  if (value === null) delete forTab[key];
+  else forTab[key] = value;
+  if (Object.keys(forTab).length) byTab[id] = forTab;
+  else delete byTab[id];
+  configState.byTab = byTab;
+  // Per-tab overrides live in session storage: tab ids are session-scoped, so
+  // persisting them past a browser restart would attach settings to unrelated
+  // future tabs.
+  await chrome.storage.session.set({ [TAB_CONFIG_KEY]: byTab });
+  return effectiveConfig(tabId);
+}
+
+/**
+ * Execute a humanize plan. The ONLY place plans meet the browser: each step is
+ * dispatched through the same CDP calls the non-humanized path uses, so a
+ * humanized action cannot do anything a normal one could not.
+ */
+async function dispatchPlan(tabId, plan, modifiers = 0) {
+  await ensureAttached(tabId);
+  for (const step of plan) {
+    switch (step.k) {
+      case "sleep":
+        await sleep(step.ms);
+        break;
+      case "move":
+        await dispatchMouse(tabId, "mouseMoved", step.x, step.y, { modifiers });
+        cursorByTab.set(tabId, { x: step.x, y: step.y });
+        break;
+      case "down":
+        await dispatchMouse(tabId, "mousePressed", step.x, step.y, {
+          button: step.button, clickCount: step.clickCount, modifiers
+        });
+        break;
+      case "up":
+        await dispatchMouse(tabId, "mouseReleased", step.x, step.y, {
+          button: step.button, clickCount: step.clickCount, modifiers
+        });
+        cursorByTab.set(tabId, { x: step.x, y: step.y });
+        break;
+      case "wheel":
+        await sendMouseEvent(
+          tabId,
+          { type: "mouseWheel", x: step.x, y: step.y, deltaX: step.dx, deltaY: step.dy, modifiers },
+          { awaitAck: false }
+        );
+        break;
+      case "kdown":
+        // rawKeyDown is the NON-text-producing variant: it gives the page a
+        // keydown event without the renderer inserting a character. All text
+        // comes from the "text" step below, exactly once.
+        await cdp(tabId, "Input.dispatchKeyEvent", {
+          type: "rawKeyDown",
+          key: step.key,
+          code: step.code,
+          windowsVirtualKeyCode: step.keyCode || 0,
+          modifiers: step.mods || 0,
+          autoRepeat: !!step.autoRepeat
+        });
+        break;
+      case "kup":
+        await cdp(tabId, "Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: step.key,
+          code: step.code,
+          windowsVirtualKeyCode: step.keyCode || 0,
+          modifiers: step.mods || 0
+        });
+        break;
+      case "text":
+        await cdp(tabId, "Input.insertText", { text: step.text });
+        break;
+    }
+  }
 }
 
 function sleep(ms) {
@@ -661,13 +849,21 @@ const toolHandlers = {
 
   async tabs_create_mcp(args) {
     await ensureTabGroup(true);
-    const tab = await chrome.tabs.create({ active: true });
+    // Create the tab INSIDE the MCP group's own window and do NOT select it:
+    // automation must never yank the operator away from what they are looking
+    // at. Without windowId the tab lands in whatever window is currently
+    // focused — i.e. the operator's — which is exactly the interruption we
+    // are avoiding. Use the set_tab_focus tool to surface a tab deliberately.
+    let windowId;
+    try {
+      const groupTabs = await chrome.tabs.query({ groupId: tabGroupId });
+      windowId = groupTabs[0]?.windowId;
+    } catch {}
+    const tab = await chrome.tabs.create(
+      windowId ? { active: false, windowId } : { active: false }
+    );
     await chrome.tabs.group({ tabIds: [tab.id], groupId: tabGroupId });
     tabGroupTabs.add(tab.id);
-    // Foreground the freshly created tab (grouping can drop it into another
-    // window). This is the ONLY place we activate a tab — no per-action
-    // re-activation, no window focus-stealing.
-    await activateTab(tab.id);
     const tabs = await chrome.tabs.query({ groupId: tabGroupId });
     const result = formatTabContext(tabs);
     result.content[0].text = `Created new tab. Tab ID: ${tab.id}\n\n` + result.content[0].text;
@@ -757,8 +953,6 @@ const toolHandlers = {
   async navigate(args) {
     const { url, tabId } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
-
-    await activateTab(tabId);
 
     if (url === "back") {
       await chrome.tabs.goBack(tabId);
@@ -851,7 +1045,6 @@ const toolHandlers = {
       }
 
       case "left_click": {
-        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for left_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers });
         return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
@@ -881,30 +1074,36 @@ const toolHandlers = {
       }
 
       case "right_click": {
-        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for right_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers });
         return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "double_click": {
-        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for double_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers });
         return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "triple_click": {
-        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for triple_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers });
         return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "hover": {
-        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for hover" }] };
+        if (await humanizeOn(tabId)) {
+          // Curved approach, then park STILL. No tremor while holding: a hover
+          // exists to keep a tooltip/menu open, and jitter near an element edge
+          // can cross the boundary, fire mouseleave and dismiss it.
+          const s = human();
+          const from = cursorByTab.get(tabId) || { x: Math.max(0, coordinate[0] - 200), y: Math.max(0, coordinate[1] - 150) };
+          await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }), modifiers);
+          return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
+        }
         await dispatchMouse(tabId, "mouseMoved", coordinate[0], coordinate[1], { modifiers });
+        cursorByTab.set(tabId, { x: coordinate[0], y: coordinate[1] });
         // Let the page apply the hover state; Brave additionally needs a settle
         // window, Chrome doesn't.
         if (await isBrave()) await sleep(200);
@@ -912,9 +1111,15 @@ const toolHandlers = {
       }
 
       case "type": {
-        await activateTab(tabId);
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
         await ensureAttached(tabId);
+        if (await humanizeOn(tabId)) {
+          // Real keydown/keyup around each character with human inter-key
+          // timing. Insertion still comes from insertText alone, so the text
+          // is byte-identical to the path below — timing can never alter it.
+          await dispatchPlan(tabId, humanize.planType(human(), args.text));
+          return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
+        }
         // Type character by character for better compatibility
         for (const char of args.text) {
           await cdp(tabId, "Input.insertText", { text: char });
@@ -925,7 +1130,6 @@ const toolHandlers = {
 
       case "key": {
         if (!args.text) return { content: [{ type: "text", text: "text is required for key action" }] };
-        await activateTab(tabId);
         await ensureAttached(tabId);
         const repeat = Math.min(args.repeat || 1, 100);
         // Parse space-separated key combos
@@ -956,12 +1160,21 @@ const toolHandlers = {
       }
 
       case "scroll": {
-        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for scroll" }] };
         const dir = args.scroll_direction || "down";
         const amount = Math.min(args.scroll_amount || 3, 10);
         const deltaX = dir === "left" ? -amount * 100 : dir === "right" ? amount * 100 : 0;
         const deltaY = dir === "up" ? -amount * 100 : dir === "down" ? amount * 100 : 0;
+        if (await humanizeOn(tabId)) {
+          // Momentum: many smaller ticks on an accelerate/coast/decelerate
+          // curve. The deltas sum to EXACTLY deltaX/deltaY, so the page lands
+          // in the same place as one big wheel event.
+          await dispatchPlan(
+            tabId,
+            humanize.planScroll(human(), { x: coordinate[0], y: coordinate[1] }, deltaX, deltaY),
+            modifiers
+          );
+        } else {
         await sendMouseEvent(tabId, {
           type: "mouseWheel",
           x: coordinate[0],
@@ -970,6 +1183,7 @@ const toolHandlers = {
           deltaY,
           modifiers,
         }, { awaitAck: false });
+        }
         // Let the compositor repaint before the confirmation screenshot; Chrome
         // repaints fast, Brave needs a longer settle window.
         await sleep((await isBrave()) ? 300 : 100);
@@ -990,7 +1204,6 @@ const toolHandlers = {
       }
 
       case "scroll_to": {
-        await activateTab(tabId);
         if (!coordinate && !args.ref) return { content: [{ type: "text", text: "coordinate or ref is required for scroll_to" }] };
         if (args.ref) {
           await sendContentMessage(tabId, {
@@ -1016,12 +1229,17 @@ const toolHandlers = {
       }
 
       case "left_click_drag": {
-        await activateTab(tabId);
         if (!args.start_coordinate || !coordinate) {
           return { content: [{ type: "text", text: "start_coordinate and coordinate are required for left_click_drag" }] };
         }
         const [sx, sy] = args.start_coordinate;
         const [ex, ey] = coordinate;
+        if (await humanizeOn(tabId)) {
+          const s = human();
+          const from = cursorByTab.get(tabId) || { x: sx, y: sy };
+          await dispatchPlan(tabId, humanize.planDrag(s, from, { x: sx, y: sy }, { x: ex, y: ey }), modifiers);
+          return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };
+        }
         await dispatchMouse(tabId, "mouseMoved", sx, sy, { modifiers });
         if (await isBrave()) await sleep(50);
         await dispatchMouse(tabId, "mousePressed", sx, sy, { button: "left", modifiers });
@@ -1464,6 +1682,79 @@ const toolHandlers = {
     }
     text += "\nPlan auto-approved (no permission restrictions in this extension).";
     return { content: [{ type: "text", text }] };
+  },
+
+  async get_config(args) {
+    await configHydrated;
+    const tabId = args?.tabId;
+    const payload = {
+      default: configState.default,
+      perTab: configState.byTab,
+      recognizedKeys: CONFIG_SCHEMA
+    };
+    if (tabId !== undefined && tabId !== null) {
+      payload.effectiveForTab = { tabId, config: effectiveConfig(tabId) };
+    }
+    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+  },
+
+  async set_config(args) {
+    const { key, value, tabId } = args || {};
+    if (!key || typeof key !== "string") {
+      return { content: [{ type: "text", text: "set_config requires 'key' (a string)." }] };
+    }
+    const effective = await writeConfig(key, value === undefined ? null : value, tabId);
+    const scope =
+      tabId === undefined || tabId === null ? "default (all tabs)" : `tab ${tabId}`;
+    const known = Object.prototype.hasOwnProperty.call(CONFIG_SCHEMA, key)
+      ? ""
+      : ` Note: "${key}" is not a recognized setting, so nothing reads it — it was stored anyway.`;
+    return {
+      content: [
+        {
+          type: "text",
+          text:
+            `Set ${key}=${JSON.stringify(value === undefined ? null : value)} for ${scope}.${known}\n` +
+            `Effective config${tabId != null ? ` for tab ${tabId}` : ""}: ${JSON.stringify(effective)}`
+        }
+      ]
+    };
+  },
+
+  // Deliberate, opt-in attention. Nothing else in this extension selects a tab
+  // or raises a window: automation drives background tabs, so the operator is
+  // never yanked around as a side effect. This tool is the ONE way to surface
+  // a tab, and it is the agent's judgement call when that is worth doing.
+  async set_tab_focus(args) {
+    const { tabId, focus_window = false } = args;
+    if (!(await isInGroup(tabId))) {
+      return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+    }
+    try {
+      await chrome.tabs.update(tabId, { active: true });
+    } catch (e) {
+      return { content: [{ type: "text", text: `Could not select tab ${tabId}: ${e.message}` }] };
+    }
+    let note = "";
+    if (focus_window) {
+      try {
+        const tab = await chrome.tabs.get(tabId);
+        // focused:true raises the browser above every other application —
+        // this is the part that interrupts the operator.
+        await chrome.windows.update(tab.windowId, { focused: true });
+        note = " and brought its window to the front";
+      } catch (e) {
+        note = ` (could not raise its window: ${e.message})`;
+      }
+    }
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Tab ${tabId} is now the active tab in its window${note}.`
+        }
+      ]
+    };
   },
 };
 

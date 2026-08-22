@@ -36,7 +36,17 @@ let mode = "primary"; // or "client"
 let started = false;
 
 let nativeHostSocket = null;
-const pendingRequests = new Map(); // id -> { resolve, reject, timer, tool, args, resent }
+const pendingRequests = new Map(); // id -> { resolve, reject, timer, tool, args }
+
+// Returned when the native host socket closes with a request still in flight.
+// Deliberately does NOT claim the action failed: the request may have reached
+// the browser and run, with only the response lost. The wording has to leave
+// the agent able to act — verify, then decide — rather than blindly retry.
+const HOST_DROPPED_ERROR =
+  "Browser connection dropped after the request was sent, so its result is unknown. " +
+  "The action may have ALREADY taken effect in the browser. Do not blindly retry: " +
+  "check the current page state first (e.g. take a screenshot or read the page), " +
+  "then repeat the action only if it did not happen.";
 let requestIdCounter = 0;
 
 // Unsolicited upstream events from the extension (not tool responses): the
@@ -200,32 +210,19 @@ function setupNativeHostConnection(socket, initialBuffer) {
   socket.on("close", () => {
     if (nativeHostSocket === socket) nativeHostSocket = null;
     if (pendingRequests.size === 0) return;
-    // Wait for a fresh native host to connect, then resend pending requests
-    // through it. Resolves as soon as the new socket appears (typically
-    // 50-300ms when the extension's keep-alive alarm reconnects); falls
-    // back to failing pending requests after maxMs.
-    waitForNativeHost(2000).then((ok) => {
-      if (ok && nativeHostSocket && !nativeHostSocket.destroyed) {
-        for (const [id, entry] of pendingRequests) {
-          if (entry.resent) continue;
-          entry.resent = true;
-          nativeHostSocket.write(
-            JSON.stringify({
-              id,
-              type: "tool_request",
-              tool: entry.tool,
-              args: entry.args
-            }) + "\n"
-          );
-        }
-      } else {
-        for (const [, { reject, timer }] of pendingRequests) {
-          clearTimeout(timer);
-          reject(new Error("Native host disconnected"));
-        }
-        pendingRequests.clear();
-      }
-    });
+    // NEVER resend an in-flight request to a fresh native host. A request that
+    // reached the browser may have ALREADY executed, with only its response
+    // lost when the socket died — replaying it silently double-executes the
+    // action (a click clicks twice, a `type` doubles its text) while the agent
+    // sees a single successful call. There is no way to tell "never ran" from
+    // "ran, response lost" at this layer, so we fail loudly and let the agent
+    // decide with page context instead of guessing. Reads are cheap for the
+    // agent to reissue; a duplicated click is not recoverable.
+    for (const [, { reject, timer }] of pendingRequests) {
+      clearTimeout(timer);
+      reject(new Error(HOST_DROPPED_ERROR));
+    }
+    pendingRequests.clear();
   });
 }
 
@@ -331,14 +328,7 @@ function sendToExtension(tool, args) {
       pendingRequests.delete(id);
       reject(new Error("Tool request timed out after 60s"));
     }, 60_000);
-    pendingRequests.set(id, {
-      resolve,
-      reject,
-      timer,
-      tool,
-      args,
-      resent: false
-    });
+    pendingRequests.set(id, { resolve, reject, timer, tool, args });
 
     if (mode === "primary") {
       if (!nativeHostSocket || nativeHostSocket.destroyed) {
@@ -348,10 +338,14 @@ function sendToExtension(tool, args) {
         // (spawned per claude session) used to fail their FIRST tool call
         // inside that window; wait for the attach instead of rejecting.
         waitForNativeHost(5000).then((ok) => {
-          if (pendingRequests.get(id)?.resent) return;
+          // This is the request's FIRST delivery, not a replay: it was never
+          // written to any socket (there wasn't one). Safe to send — but only
+          // if it is still pending. If the entry is gone the promise was
+          // already settled (e.g. the host closed and we rejected it), and
+          // dispatching now would run an action nobody is waiting on.
+          const entry = pendingRequests.get(id);
+          if (!entry) return;
           if (ok && nativeHostSocket && !nativeHostSocket.destroyed) {
-            const entry = pendingRequests.get(id);
-            if (entry) entry.resent = true;
             nativeHostSocket.write(
               JSON.stringify({ id, type: "tool_request", tool, args }) + "\n"
             );
