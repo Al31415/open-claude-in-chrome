@@ -740,12 +740,14 @@ const CONFIG_SCHEMA = {
     "identical (same element, same text, same scroll position) — only the motion " +
     "and timing change, so actions take noticeably longer. Default false.",
   humanize_speed:
-    "How much time humanized motion is allowed to take: \"fast\" (default) or " +
-    "\"natural\". Measured typing 15 characters: fast ~1.2s, natural ~2.0s " +
-    "(natural is genuine human cadence, ~136ms between keystrokes). Use fast " +
-    "unless the timing itself has to look unhurried — both keep movement before " +
-    "the click, real key events and identical outcomes; fast just uses fewer " +
-    "path samples and shorter pauses. Only applies while humanize is true."
+    "How much time humanized motion is allowed to take, fastest to slowest: " +
+    "\"fastest\", \"fast\" (default), \"natural\", \"relaxed\". Higher tiers " +
+    "spend more time and draw cursor paths with more samples. \"natural\" is " +
+    "genuine human cadence; \"fastest\" keeps the shape of human motion but " +
+    "compresses it, for when there is a lot to get through. Every tier keeps " +
+    "movement before the click, real key events and identical outcomes — faster " +
+    "tiers use fewer path samples and shorter pauses, never none. Only applies " +
+    "while humanize is true."
 };
 
 let configState = { default: { humanize: false, humanize_speed: "fast" }, byTab: {} };

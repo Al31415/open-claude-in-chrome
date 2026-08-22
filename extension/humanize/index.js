@@ -41,10 +41,11 @@ export { sampleInBox };
  *   fast         1161ms   (~77ms/key)
  *   natural      2033ms   (~136ms/key — genuine human typing cadence)
  *
- * A third "deliberate" tier was measured at ~280ms/key (4.2s for the same 15
- * characters) and REMOVED. A tier nobody would willingly pick is not an
- * option, it is a trap: the point of a speed setting is to make humanization
- * affordable, and 4s per action is the opposite.
+ * The ceiling is deliberate: an earlier tier measured ~280ms/key (4.2s for the
+ * same 15 characters) and was removed. A tier nobody would willingly pick is
+ * not an option, it is a trap — the point of a speed setting is to make
+ * humanization affordable. `relaxed` is the slowest tier now, and is tuned to
+ * stay under that line while still reading as unhurried.
  *
  *   time   scales every delay (approach, dwell, inter-key, scroll ticks)
  *   points scales how many samples a cursor path is drawn with
@@ -55,8 +56,10 @@ export { sampleInBox };
  * identical outcomes — with fewer samples and shorter pauses, never none.
  */
 export const TEMPOS = {
+  fastest: { time: 0.14, points: 0.2 },
   fast: { time: 0.38, points: 0.4 },
-  natural: { time: 1, points: 1 }
+  natural: { time: 1, points: 1 },
+  relaxed: { time: 1.5, points: 1.25 }
 };
 export const DEFAULT_TEMPO = "fast";
 

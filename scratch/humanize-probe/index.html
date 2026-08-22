@@ -50,6 +50,13 @@
   <pre id="log"></pre>
 </div>
 
+<!-- Tall filler so the WINDOW itself can scroll a full viewport, which is what
+     "scroll down one screen" means. Without it the page fits and a page-level
+     scroll is a no-op. -->
+<div id="filler" style="height:2400px;background:repeating-linear-gradient(180deg,#fff,#fff 78px,#f0f0ec 78px,#f0f0ec 80px);border:1px solid #e2e2dd;border-radius:10px;margin-top:14px">
+  <div style="padding:10px 14px;color:#5b5f66;font-size:12px">scroll region — each band is 80px</div>
+</div>
+
 <script>
 const probe = {
   moves: [],      // {t, x, y}
@@ -152,11 +159,14 @@ window.__probeStats = function () {
     wheelTotalDy: probe.wheels.reduce((s,w)=>s+w.dy,0),
     hoverEnters: probe.hovers.filter(h=>h.type==='enter').length,
     hoverLeaves: probe.hovers.filter(h=>h.type==='leave').length,
-    finalText: (document.getElementById('text').value)
+    finalText: (document.getElementById('text').value),
+    scrollY: Math.round(window.scrollY),
+    viewportH: window.innerHeight
   });
 };
 window.__probeReset = function () {
   for (const k of Object.keys(probe)) probe[k].length = 0;
+  window.scrollTo(0, 0);
   document.getElementById('text').value = '';
   lines.length = 0; logEl.textContent = ''; cv.clearRect(0,0,520,300); stats();
   return 'reset';

@@ -98,32 +98,33 @@ console.log("== sessions differ from one another (persona) ==");
   const dur = (plan) => plan.filter(p => p.k === "sleep").reduce((a, p) => a + p.ms, 0);
   const moves = (plan) => plan.filter(p => p.k === "move").length;
   const from = { x: 20, y: 20 }, to = { x: 640, y: 400 };
-  const rows = ["fast", "natural"].map((tier) => {
+  const rows = ["fastest", "fast", "natural", "relaxed"].map((tier) => {
     const s = mk(7, tier);
     const p = planClick(s, from, to);
     const d = p.filter(x => x.k === "down"), u = p.filter(x => x.k === "up");
     return { tier, ms: dur(p), moves: moves(p), landsOn: d[0].x === to.x && d[0].y === to.y && u[0].x === to.x };
   });
   for (const r of rows) console.log(`     ${r.tier.padEnd(11)} ${String(r.ms).padStart(5)}ms  ${String(r.moves).padStart(3)} moves`);
-  const [fast, natural] = rows;
-  ok(fast.ms < natural.ms, "fast is quicker than natural");
-  ok(fast.moves < natural.moves, `fast draws the path with fewer samples (${fast.moves} vs ${natural.moves})`);
-  ok(fast.moves >= 3, `fast still MOVES before clicking (${fast.moves} samples, not zero)`);
+  const monotonic = rows.every((r, i) => i === 0 || rows[i - 1].ms < r.ms);
+  ok(monotonic, "duration increases strictly across the four tiers, fastest -> relaxed");
+  const movesMonotonic = rows.every((r, i) => i === 0 || rows[i - 1].moves <= r.moves);
+  ok(movesMonotonic, "path sample count is non-decreasing across the tiers");
+  ok(rows.every(r => r.moves >= 3), `even the fastest tier MOVES before clicking (min ${Math.min(...rows.map(r=>r.moves))} samples, not zero)`);
   ok(rows.every(r => r.landsOn), "every tier still lands exactly on the target");
 
   // typing text must stay byte-identical at every tier
   const txt = "user@example.com";
-  ok(["fast","natural"].every(tier =>
+  ok(["fastest","fast","natural","relaxed"].every(tier =>
       planType(mk(3, tier), txt).filter(p=>p.k==="text").map(p=>p.text).join("") === txt),
      "typed text is byte-identical at every speed tier");
   // and key hold must stay under the typematic threshold even when slowed down
-  const sd = mk(3, "natural");
+  const sd = mk(3, "relaxed");
   const planD = planType(sd, "ab");
   let maxHold = 0;
   for (let i=0;i<planD.length;i++) if (planD[i].k==="kdown")
     for (let j=i+1;j<planD.length;j++){ if(planD[j].k==="sleep") maxHold=Math.max(maxHold,planD[j].ms); if(planD[j].k==="kup") break; }
   ok(maxHold < sd.tm.initialDelayMs, `slowest tier still holds keys under the typematic delay (${Math.round(maxHold)}ms < ${Math.round(sd.tm.initialDelayMs)}ms) — no accidental auto-repeat`);
-  ok(Object.keys(TEMPOS).length === 2, "only affordable tiers are exposed (the ~4s one was cut)");
+  ok(Object.keys(TEMPOS).length === 4, "four tiers exposed");
   // A default that costs a lot is a default nobody keeps.
   const { DEFAULT_TEMPO } = await import("../extension/humanize/index.js");
   ok(DEFAULT_TEMPO === "fast", "the cheaper tier is the default");

@@ -477,14 +477,19 @@ changes *where inside a target* you land, *how* the cursor gets there, and
 
 Realism costs wall-clock, so the time affordance is a setting:
 
-| `humanize_speed` | Typing 15 chars, measured in-browser |
+| `humanize_speed` | |
 |---|---|
-| `fast` *(default)* | ~1.2s — fewer path samples, shorter pauses, still moves before clicking |
-| `natural` | ~2.0s — genuine human cadence (~136ms between keystrokes) |
+| `fastest` | The shape of human motion, compressed — for getting through a lot |
+| `fast` *(default)* | Fewer path samples and shorter pauses |
+| `natural` | Genuine human cadence (~136ms between keystrokes) |
+| `relaxed` | Unhurried |
 
-For reference, the same text with `humanize` off takes ~0.2s, which is the
-floor imposed by CDP dispatch itself. A third, slower tier was measured at
-~4.2s and cut: a setting nobody would pick is a trap, not an option.
+Every tier keeps movement before the click, real key events and identical
+outcomes; faster tiers use fewer path samples and shorter pauses, never none.
+For reference, `humanize` off takes ~0.2s to type 15 characters, which is the
+floor imposed by CDP dispatch itself. The ceiling is deliberate too — a slower
+tier measured at ~4.2s for the same text was cut, because a setting nobody
+would pick is a trap rather than an option.
 
 
 Both settings can be scoped to one tab (`set_config({ key, value, tabId })`),
