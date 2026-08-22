@@ -628,13 +628,26 @@ function writeScreenshotToDisk(base64) {
 const INPUT_ACK_WAIT_MS = 250; // Brave: bounded wait for fire-and-forget (mouseWheel never acks)
 const CHROME_INPUT_ACK_WAIT_MS = 50; // Chrome: acks instantly, a short window suffices
 
-async function sendMouseEvent(tabId, params, { awaitAck = true } = {}) {
+async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } = {}) {
   await ensureAttached(tabId);
   const send = withTimeout(
     chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", params),
     CDP_TIMEOUT_MS,
     "CDP Input.dispatchMouseEvent",
   );
+  if (noAck) {
+    // Queue it and move on WITHOUT waiting for the ack at all.
+    //
+    // This exists for humanized motion, where the ack round-trip — not the
+    // modelled timing — is the real cost: a natural click plans ~0.8s of
+    // delays but measured ~3.9s in the browser, because each of ~45 moves
+    // waited ~85ms for its ack. Cursor moves need no ack (they apply
+    // regardless, and the plan carries its own pacing in sleep steps), so
+    // waiting only buys latency. Press/release still use the awaited path,
+    // since those ARE dropped if issued while an earlier command is un-acked.
+    send.catch((e) => console.warn("Input.dispatchMouseEvent (noAck):", e.message));
+    return;
+  }
   if (awaitAck) {
     await send; // serial-await path (required on Brave: press/release dropped if not awaited)
     return;
@@ -650,6 +663,14 @@ async function sendMouseEvent(tabId, params, { awaitAck = true } = {}) {
 }
 
 async function dispatchMouse(tabId, type, x, y, opts = {}) {
+  if (opts.noAck) {
+    await sendMouseEvent(
+      tabId,
+      { type, x, y, button: opts.button || "left", clickCount: opts.clickCount || 1, modifiers: opts.modifiers || 0 },
+      { noAck: true }
+    );
+    return;
+  }
   // Chrome acks instantly and applies immediately, so the mouseMoved "move"
   // sub-event needs no ack and can be fire-and-forget (awaitAck:false). Brave
   // must keep the serial-await path (its moves silently drop if not awaited).
@@ -808,7 +829,7 @@ async function dispatchPlan(tabId, plan, modifiers = 0) {
         // in the sleep steps, and moves apply without their ack, so nothing is
         // lost by not waiting. Press/release still await (they are dropped if
         // issued while an earlier command is un-acked).
-        await dispatchMouse(tabId, "mouseMoved", step.x, step.y, { modifiers, awaitAck: false });
+        await dispatchMouse(tabId, "mouseMoved", step.x, step.y, { modifiers, noAck: true });
         cursorByTab.set(tabId, { x: step.x, y: step.y });
         break;
       case "down":
@@ -826,7 +847,7 @@ async function dispatchPlan(tabId, plan, modifiers = 0) {
         await sendMouseEvent(
           tabId,
           { type: "mouseWheel", x: step.x, y: step.y, deltaX: step.dx, deltaY: step.dy, modifiers },
-          { awaitAck: false }
+          { noAck: true }
         );
         break;
       case "kdown":
