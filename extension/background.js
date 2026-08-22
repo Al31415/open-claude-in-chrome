@@ -1114,15 +1114,45 @@ const toolHandlers = {
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
         await ensureAttached(tabId);
         if (await humanizeOn(tabId)) {
-          // Real keydown/keyup around each character with human inter-key
-          // timing. Insertion still comes from insertText alone, so the text
-          // is byte-identical to the path below — timing can never alter it.
+          // Same key events as the default path below, but with human-shaped
+          // inter-key timing instead of a flat interval.
           await dispatchPlan(tabId, humanize.planType(human(), args.text));
           return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
         }
-        // Type character by character for better compatibility
+        // Default path: emit real keydown/keyup around each character.
+        //
+        // Measured against the official Claude in Chrome on an instrumented
+        // page: its `type` delivers a keydown+keyup per character with correct
+        // `code` values. Insertion-only (bare insertText) delivered ZERO key
+        // events, so pages that gate on keydown — search-as-you-type, key
+        // validators, shortcut handlers — saw nothing. That was a parity gap,
+        // not just a realism one, so key events are the default here too.
+        //
+        // rawKeyDown is the NON-text-producing variant: the character comes
+        // from insertText alone, exactly once, so this cannot double-insert or
+        // drop text. Characters with no real key identity (emoji, CJK) fall
+        // back to insertText on its own rather than a fabricated keystroke.
         for (const char of args.text) {
+          const d = humanize.keyDescriptorFor(char);
+          if (d) {
+            await cdp(tabId, "Input.dispatchKeyEvent", {
+              type: "rawKeyDown",
+              key: char,
+              code: d.code,
+              windowsVirtualKeyCode: d.keyCode || 0,
+              modifiers: d.shift ? 8 : 0
+            });
+          }
           await cdp(tabId, "Input.insertText", { text: char });
+          if (d) {
+            await cdp(tabId, "Input.dispatchKeyEvent", {
+              type: "keyUp",
+              key: char,
+              code: d.code,
+              windowsVirtualKeyCode: d.keyCode || 0,
+              modifiers: d.shift ? 8 : 0
+            });
+          }
           await sleep(10);
         }
         return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };

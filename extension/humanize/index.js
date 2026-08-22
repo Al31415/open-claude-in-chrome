@@ -24,6 +24,10 @@ import { makeRng, makePersona, randomSeed, clamp } from "./rng.js";
 import { planPath, sampleInBox, distance } from "./cursor.js";
 import { typematic, keyHoldMs, interKeyMs, keyDescriptor } from "./keyboard.js";
 
+// Re-exported for the NON-humanized type path in background.js, which emits the
+// same real key events (matching Claude in Chrome) with flat timing.
+export { keyDescriptor as keyDescriptorFor };
+
 export { sampleInBox };
 
 /**

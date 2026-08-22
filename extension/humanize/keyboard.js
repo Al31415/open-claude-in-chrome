@@ -62,7 +62,19 @@ const CODE_PUNCT = {
   "[": "BracketLeft", "{": "BracketLeft", "]": "BracketRight", "}": "BracketRight",
   "\\": "Backslash", "|": "Backslash", ";": "Semicolon", ":": "Semicolon",
   "'": "Quote", '"': "Quote", ",": "Comma", "<": "Comma", ".": "Period",
-  ">": "Period", "/": "Slash", "?": "Slash", "`": "Backquote", "~": "Backquote"
+  ">": "Period", "/": "Slash", "?": "Slash", "`": "Backquote", "~": "Backquote",
+  // Shifted digits. Easy to overlook because they are punctuation, but they
+  // sit on the number row — "!" is Digit1 with shift, not its own key. Without
+  // these, common text ("hi!", any email address via "@") fell back to
+  // insertText with NO key events, which is the exact signal humanized typing
+  // exists to produce. Caught by the executor test.
+  "!": "Digit1", "@": "Digit2", "#": "Digit3", "$": "Digit4", "%": "Digit5",
+  "^": "Digit6", "&": "Digit7", "*": "Digit8", "(": "Digit9", ")": "Digit0"
+};
+// Digits share their keyCode with the unshifted number key.
+const SHIFTED_DIGIT_KEYCODE = {
+  "!": 49, "@": 50, "#": 51, "$": 52, "%": 53,
+  "^": 54, "&": 55, "*": 56, "(": 57, ")": 48
 };
 
 /**
@@ -86,8 +98,11 @@ export function keyDescriptor(ch) {
   }
   if (CODE_PUNCT[ch]) {
     // keyCode for punctuation is layout-dependent; 0 is safer than a wrong
-    // guess, and pages that care overwhelmingly read `key`/`code`.
-    return { code: CODE_PUNCT[ch], keyCode: ch === " " ? 32 : 0, shift: SHIFTED.has(ch) };
+    // guess, and pages that care overwhelmingly read `key`/`code`. The shifted
+    // digits are the exception — those keyCodes are the number-row keys.
+    const keyCode =
+      ch === " " ? 32 : SHIFTED_DIGIT_KEYCODE[ch] !== undefined ? SHIFTED_DIGIT_KEYCODE[ch] : 0;
+    return { code: CODE_PUNCT[ch], keyCode, shift: SHIFTED.has(ch) };
   }
   return null; // unmappable -> insertText only
 }
