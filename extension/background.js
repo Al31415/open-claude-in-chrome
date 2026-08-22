@@ -286,22 +286,17 @@ async function isInGroup(tabId) {
 }
 
 // --- CDP helpers ---
-// Chrome (and Chromium generally) throttle a non-visible tab: its compositor
-// stops committing frames, so Input.dispatchMouseEvent to it stalls ~5s. We
-// make a tab the active/selected tab of its window ONLY when it is created —
-// that is the moment the tab we are about to drive must be foreground. We do
-// NOT re-activate on every action, and we NEVER focus/raise the window (that
-// would steal OS focus, which is disruptive when the browser is shared). If a
-// tab is later backgrounded (e.g. the user selects another tab), its input
-// pays the throttle cost until it is foreground again — an accepted tradeoff.
-async function activateTab(tabId) {
-  try {
-    const tab = await chrome.tabs.get(tabId);
-    if (!tab.active) await chrome.tabs.update(tabId, { active: true });
-  } catch (e) {
-    console.warn("activateTab:", e.message);
-  }
-}
+// NOTE ON TAB ACTIVATION: nothing in here selects a tab or raises a window.
+// Automation drives background tabs, so it never yanks the operator away from
+// what they are doing — that interruption is the whole of issue #28, and it is
+// also how the official Claude in Chrome behaves. The one deliberate exception
+// is the set_tab_focus tool, which exists precisely so surfacing a tab is a
+// choice the agent makes rather than a side effect of every click.
+//
+// The tradeoff: Chromium throttles a fully hidden tab's compositor, so input
+// dispatched to one can be slower than to a visible tab. A tab in a visible
+// window (even an unfocused one) still renders, which is the normal case here
+// since the MCP group lives in its own window.
 
 async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
