@@ -35,7 +35,7 @@ const cursorByTab = new Map(); // tabId -> { x, y }
 // click. Lazily created — costs nothing when humanize is off.
 let humanSession = null;
 function human(speed) {
-  const tier = speed || "natural";
+  const tier = speed || "fast";
   if (!humanSession) humanSession = humanize.createSession(undefined, tier);
   else humanize.setSpeed(humanSession, tier);
   return humanSession;
@@ -740,16 +740,15 @@ const CONFIG_SCHEMA = {
     "identical (same element, same text, same scroll position) — only the motion " +
     "and timing change, so actions take noticeably longer. Default false.",
   humanize_speed:
-    "How much time humanized motion is allowed to take: \"fast\", \"natural\" " +
-    "(default), or \"deliberate\". Realism costs wall-clock — a natural click " +
-    "runs a few seconds — so drop to \"fast\" when there is a lot to get through " +
-    "and the motion only has to be plausible, or raise to \"deliberate\" when it " +
-    "should read as unhurried. Every tier keeps movement before the click, real " +
-    "key events and identical outcomes; faster tiers use fewer path samples and " +
-    "shorter pauses, never none. Only applies while humanize is true."
+    "How much time humanized motion is allowed to take: \"fast\" (default) or " +
+    "\"natural\". Measured typing 15 characters: fast ~1.2s, natural ~2.0s " +
+    "(natural is genuine human cadence, ~136ms between keystrokes). Use fast " +
+    "unless the timing itself has to look unhurried — both keep movement before " +
+    "the click, real key events and identical outcomes; fast just uses fewer " +
+    "path samples and shorter pauses. Only applies while humanize is true."
 };
 
-let configState = { default: { humanize: false, humanize_speed: "natural" }, byTab: {} };
+let configState = { default: { humanize: false, humanize_speed: "fast" }, byTab: {} };
 let configHydrated = null;
 
 async function hydrateConfig() {
@@ -757,7 +756,7 @@ async function hydrateConfig() {
     const local = await chrome.storage.local.get(CONFIG_KEY);
     const session = await chrome.storage.session.get(TAB_CONFIG_KEY);
     configState = {
-      default: { humanize: false, humanize_speed: "natural", ...(local[CONFIG_KEY] || {}) },
+      default: { humanize: false, humanize_speed: "fast", ...(local[CONFIG_KEY] || {}) },
       byTab: session[TAB_CONFIG_KEY] || {}
     };
   } catch {}

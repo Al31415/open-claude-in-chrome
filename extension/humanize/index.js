@@ -33,23 +33,32 @@ export { sampleInBox };
 /**
  * Speed tiers — the time affordance for humanization.
  *
- * Realism costs wall-clock: a full trajectory plus human dwells measured ~3.9s
- * per click on one browser, which is a lot to pay on every action. These let
- * the caller trade motion detail for latency without turning humanization off.
+ * Realism costs wall-clock, so this is a real tradeoff and the numbers decide
+ * it. Measured in-browser (page-recorded event timestamps, so no model or MCP
+ * overhead in the span), typing 15 characters:
+ *
+ *   humanize off  211ms   (~14ms/key — the floor: CDP dispatch itself)
+ *   fast         1161ms   (~77ms/key)
+ *   natural      2033ms   (~136ms/key — genuine human typing cadence)
+ *
+ * A third "deliberate" tier was measured at ~280ms/key (4.2s for the same 15
+ * characters) and REMOVED. A tier nobody would willingly pick is not an
+ * option, it is a trap: the point of a speed setting is to make humanization
+ * affordable, and 4s per action is the opposite.
  *
  *   time   scales every delay (approach, dwell, inter-key, scroll ticks)
  *   points scales how many samples a cursor path is drawn with
  *
- * Even the fastest tier keeps the properties that matter: movement before the
- * click, a landing point inside the target, real key events, exact outcomes.
- * It has fewer intermediate samples and shorter pauses, not none.
+ * `fast` is the default, because turning humanization on should not cost a
+ * multiple of what it saves. It keeps everything that matters — movement
+ * before the click, a landing point inside the target, real key events,
+ * identical outcomes — with fewer samples and shorter pauses, never none.
  */
 export const TEMPOS = {
-  fast: { time: 0.4, points: 0.45 },
-  natural: { time: 1, points: 1 },
-  deliberate: { time: 1.75, points: 1.3 }
+  fast: { time: 0.38, points: 0.4 },
+  natural: { time: 1, points: 1 }
 };
-export const DEFAULT_TEMPO = "natural";
+export const DEFAULT_TEMPO = "fast";
 
 /**
  * One "hand" per session: a seeded rng plus a persona (tempo, steadiness,

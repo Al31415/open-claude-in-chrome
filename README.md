@@ -477,11 +477,15 @@ changes *where inside a target* you land, *how* the cursor gets there, and
 
 Realism costs wall-clock, so the time affordance is a setting:
 
-| `humanize_speed` | Behaviour |
+| `humanize_speed` | Typing 15 chars, measured in-browser |
 |---|---|
-| `fast` | Fewer path samples, short pauses. Still moves before clicking. |
-| `natural` | Default. The full model. |
-| `deliberate` | Slower and more unhurried. |
+| `fast` *(default)* | ~1.2s — fewer path samples, shorter pauses, still moves before clicking |
+| `natural` | ~2.0s — genuine human cadence (~136ms between keystrokes) |
+
+For reference, the same text with `humanize` off takes ~0.2s, which is the
+floor imposed by CDP dispatch itself. A third, slower tier was measured at
+~4.2s and cut: a setting nobody would pick is a trap, not an option.
+
 
 Both settings can be scoped to one tab (`set_config({ key, value, tabId })`),
 and `get_config` returns the catalog of recognised settings so the current set
