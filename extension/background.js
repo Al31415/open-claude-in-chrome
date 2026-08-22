@@ -312,6 +312,22 @@ async function ensureAttached(tabId) {
     deviceScaleFactor: 1,
     mobile: false,
   });
+  // Make the tab behave as focused/active for input purposes WITHOUT selecting
+  // it. Since we stopped foregrounding tabs (#28), a driven tab is often not
+  // the selected one, and Chromium throttles a hidden tab: synthesized
+  // mousePressed/mouseReleased can be dropped outright — observed as clicks
+  // that reach the page as zero mousedown/mouseup events. This is the same
+  // primitive headless automation uses to drive unfocused pages, and it is
+  // what lets "never steal the operator's focus" and "input actually lands"
+  // both hold. Best-effort: older builds without it just keep the old
+  // behaviour rather than failing the attach.
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Emulation.setFocusEmulationEnabled", {
+      enabled: true,
+    });
+  } catch (e) {
+    console.warn("setFocusEmulationEnabled unavailable:", e.message);
+  }
 }
 
 async function ensureDomain(tabId, domain) {
@@ -775,7 +791,14 @@ async function dispatchPlan(tabId, plan, modifiers = 0) {
         await sleep(step.ms);
         break;
       case "move":
-        await dispatchMouse(tabId, "mouseMoved", step.x, step.y, { modifiers });
+        // awaitAck:false is load-bearing here. A humanized path dispatches
+        // dozens of mouseMoved events, and on some Chromium builds each one
+        // can sit ~5s waiting for a debugger ack — 26 moves then blow past the
+        // 60s tool timeout (observed). The plan already carries its own timing
+        // in the sleep steps, and moves apply without their ack, so nothing is
+        // lost by not waiting. Press/release still await (they are dropped if
+        // issued while an earlier command is un-acked).
+        await dispatchMouse(tabId, "mouseMoved", step.x, step.y, { modifiers, awaitAck: false });
         cursorByTab.set(tabId, { x: step.x, y: step.y });
         break;
       case "down":
