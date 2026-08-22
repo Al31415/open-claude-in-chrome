@@ -125,6 +125,24 @@ console.log("== sessions differ from one another (persona) ==");
     for (let j=i+1;j<planD.length;j++){ if(planD[j].k==="sleep") maxHold=Math.max(maxHold,planD[j].ms); if(planD[j].k==="kup") break; }
   ok(maxHold < sd.tm.initialDelayMs, `slowest tier still holds keys under the typematic delay (${Math.round(maxHold)}ms < ${Math.round(sd.tm.initialDelayMs)}ms) — no accidental auto-repeat`);
   ok(Object.keys(TEMPOS).length === 4, "four tiers exposed");
+
+  // Typing cost is per CHARACTER, so a tier multiplier that is harmless on a
+  // click compounds into seconds on a form field. Measured: a uniform 1.5x
+  // tier typed 15 characters in 4.9s — slower than a tier already removed for
+  // being unusable. The slow end of `keys` is therefore damped relative to
+  // `time`, and this asserts that damping stays in place.
+  const typeMs = (tier) => planType(mk(5, tier), "Hello World 123")
+    .filter(p => p.k === "sleep").reduce((a, p) => a + p.ms, 0);
+  const clickMs = (tier) => planClick(mk(5, tier), { x: 20, y: 20 }, { x: 640, y: 400 })
+    .filter(p => p.k === "sleep").reduce((a, p) => a + p.ms, 0);
+  const slowTypeRatio = typeMs("relaxed") / typeMs("natural");
+  const slowClickRatio = clickMs("relaxed") / clickMs("natural");
+  ok(slowClickRatio > slowTypeRatio,
+     `the slowest tier slows MOTION more than TYPING (click x${slowClickRatio.toFixed(2)} vs type x${slowTypeRatio.toFixed(2)})`);
+  ok(typeMs("relaxed") < 3600,
+     `slowest tier types 15 chars in ${typeMs("relaxed")}ms planned — stays under the ~4s line that got a tier cut`);
+  ok(typeMs("fastest") < typeMs("fast") && typeMs("fast") < typeMs("natural"),
+     "typing still gets monotonically slower across the tiers");
   // A default that costs a lot is a default nobody keeps.
   const { DEFAULT_TEMPO } = await import("../extension/humanize/index.js");
   ok(DEFAULT_TEMPO === "fast", "the cheaper tier is the default");

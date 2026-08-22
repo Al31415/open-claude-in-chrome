@@ -481,11 +481,14 @@ Realism costs wall-clock, so the time affordance is a setting:
 |---|---|
 | `fastest` | The shape of human motion, compressed — for getting through a lot |
 | `fast` *(default)* | Fewer path samples and shorter pauses |
-| `natural` | Genuine human cadence (~136ms between keystrokes) |
-| `relaxed` | Unhurried |
+| `natural` | Genuine human cadence |
+| `relaxed` | Unhurried motion (typing stays near natural — see below) |
 
 Every tier keeps movement before the click, real key events and identical
 outcomes; faster tiers use fewer path samples and shorter pauses, never none.
+Typing is scaled separately from motion, because its cost is per *character*
+rather than per action: the slow tier stretches cursor movement but barely
+stretches typing, since an unhurried person still types at their own speed.
 For reference, `humanize` off takes ~0.2s to type 15 characters, which is the
 floor imposed by CDP dispatch itself. The ceiling is deliberate too — a slower
 tier measured at ~4.2s for the same text was cut, because a setting nobody

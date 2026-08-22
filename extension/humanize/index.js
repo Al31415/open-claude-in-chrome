@@ -56,10 +56,13 @@ export { sampleInBox };
  * identical outcomes — with fewer samples and shorter pauses, never none.
  */
 export const TEMPOS = {
-  fastest: { time: 0.14, points: 0.2 },
-  fast: { time: 0.38, points: 0.4 },
-  natural: { time: 1, points: 1 },
-  relaxed: { time: 1.5, points: 1.25 }
+  //          time  = cursor/scroll/dwell delays   (cost is per ACTION)
+  //          keys  = inter-keystroke delays       (cost is per CHARACTER)
+  //          points = cursor path samples
+  fastest: { time: 0.14, keys: 0.2, points: 0.2 },
+  fast: { time: 0.38, keys: 0.42, points: 0.4 },
+  natural: { time: 1, keys: 1, points: 1 },
+  relaxed: { time: 1.5, keys: 1.12, points: 1.25 }
 };
 export const DEFAULT_TEMPO = "fast";
 
@@ -80,9 +83,27 @@ export function setSpeed(s, speed) {
   return s;
 }
 
-/** Every delay in a plan goes through here so one tier scales them all. */
+/** Every non-typing delay in a plan goes through here. */
 function t(s, ms) {
   return Math.max(1, Math.round(ms * (s.tempo ? s.tempo.time : 1)));
+}
+
+/**
+ * Inter-keystroke delay, scaled SEPARATELY from the rest.
+ *
+ * A click pays its tier once; typing pays per character, so the same
+ * multiplier that adds 200ms to a click adds seconds to a form field. Measured
+ * on a 15-character string, a uniform 1.5x tier produced 4.9s of typing —
+ * slower than the ~4.2s tier that was removed for being unusable, arriving by
+ * the back door.
+ *
+ * Slower tiers are also the least defensible place to slow typing down: an
+ * unhurried person still types at roughly their own speed, they do not
+ * hunt-and-peck. So the slow end is damped hard while the fast end scales
+ * freely (a quick typist is perfectly plausible).
+ */
+function tKey(s, ms) {
+  return Math.max(1, Math.round(ms * (s.tempo ? s.tempo.keys : 1)));
 }
 
 /** A short pause before acting — the "think time" a human spends orienting. */
@@ -211,7 +232,7 @@ export function planType(s, text) {
   const plan = [];
   let prev = null;
   for (const ch of String(text)) {
-    if (prev !== null) plan.push({ k: "sleep", ms: t(s, interKeyMs(s.rng, prev, s.persona)) });
+    if (prev !== null) plan.push({ k: "sleep", ms: tKey(s, interKeyMs(s.rng, prev, s.persona)) });
     const d = keyDescriptor(ch);
     if (!d) {
       plan.push({ k: "text", text: ch });
@@ -221,7 +242,7 @@ export function planType(s, text) {
     const mods = d.shift ? 8 : 0;
     plan.push({ k: "kdown", key: ch, code: d.code, keyCode: d.keyCode, mods });
     plan.push({ k: "text", text: ch });
-    plan.push({ k: "sleep", ms: Math.min(t(s, keyHoldMs(s.rng, s.tm, s.persona)), Math.round(s.tm.initialDelayMs * 0.45)) });
+    plan.push({ k: "sleep", ms: Math.min(tKey(s, keyHoldMs(s.rng, s.tm, s.persona)), Math.round(s.tm.initialDelayMs * 0.45)) });
     plan.push({ k: "kup", key: ch, code: d.code, keyCode: d.keyCode, mods });
     prev = ch;
   }
@@ -246,7 +267,7 @@ export function planKey(s, { key, code, keyCode, mods = 0, holdMs = 0 }) {
       elapsed += step;
     }
   } else {
-    plan.push({ k: "sleep", ms: Math.min(t(s, keyHoldMs(s.rng, s.tm, s.persona)), Math.round(s.tm.initialDelayMs * 0.45)) });
+    plan.push({ k: "sleep", ms: Math.min(tKey(s, keyHoldMs(s.rng, s.tm, s.persona)), Math.round(s.tm.initialDelayMs * 0.45)) });
   }
   plan.push({ k: "kup", key, code, keyCode, mods });
   return plan;
