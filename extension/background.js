@@ -34,8 +34,10 @@ const cursorByTab = new Map(); // tabId -> { x, y }
 // session is internally consistent rather than re-rolling its character every
 // click. Lazily created — costs nothing when humanize is off.
 let humanSession = null;
-function human() {
-  if (!humanSession) humanSession = humanize.createSession();
+function human(speed) {
+  const tier = speed || "natural";
+  if (!humanSession) humanSession = humanize.createSession(undefined, tier);
+  else humanize.setSpeed(humanSession, tier);
   return humanSession;
 }
 
@@ -674,7 +676,7 @@ async function mouseClick(tabId, x, y, opts = {}) {
   // Humanized: approach along a curved path from wherever this tab's cursor
   // actually is, land on the requested point, press/release with real dwell.
   if (await humanizeOn(tabId)) {
-    const s = human();
+    const s = human(effectiveConfig(tabId).humanize_speed);
     const from = cursorByTab.get(tabId) || { x: Math.max(0, x - 220), y: Math.max(0, y - 160) };
     await dispatchPlan(
       tabId,
@@ -715,10 +717,18 @@ const CONFIG_SCHEMA = {
     "with a real press dwell, scrolls decomposed into momentum ticks, and typing " +
     "with per-character keydown/keyup and human inter-key timing. Outcomes are " +
     "identical (same element, same text, same scroll position) — only the motion " +
-    "and timing change, so actions take noticeably longer. Default false."
+    "and timing change, so actions take noticeably longer. Default false.",
+  humanize_speed:
+    "How much time humanized motion is allowed to take: \"fast\", \"natural\" " +
+    "(default), or \"deliberate\". Realism costs wall-clock — a natural click " +
+    "runs a few seconds — so drop to \"fast\" when there is a lot to get through " +
+    "and the motion only has to be plausible, or raise to \"deliberate\" when it " +
+    "should read as unhurried. Every tier keeps movement before the click, real " +
+    "key events and identical outcomes; faster tiers use fewer path samples and " +
+    "shorter pauses, never none. Only applies while humanize is true."
 };
 
-let configState = { default: { humanize: false }, byTab: {} };
+let configState = { default: { humanize: false, humanize_speed: "natural" }, byTab: {} };
 let configHydrated = null;
 
 async function hydrateConfig() {
@@ -726,7 +736,7 @@ async function hydrateConfig() {
     const local = await chrome.storage.local.get(CONFIG_KEY);
     const session = await chrome.storage.session.get(TAB_CONFIG_KEY);
     configState = {
-      default: { humanize: false, ...(local[CONFIG_KEY] || {}) },
+      default: { humanize: false, humanize_speed: "natural", ...(local[CONFIG_KEY] || {}) },
       byTab: session[TAB_CONFIG_KEY] || {}
     };
   } catch {}
@@ -1115,7 +1125,7 @@ const toolHandlers = {
           // Curved approach, then park STILL. No tremor while holding: a hover
           // exists to keep a tooltip/menu open, and jitter near an element edge
           // can cross the boundary, fire mouseleave and dismiss it.
-          const s = human();
+          const s = human(effectiveConfig(tabId).humanize_speed);
           const from = cursorByTab.get(tabId) || { x: Math.max(0, coordinate[0] - 200), y: Math.max(0, coordinate[1] - 150) };
           await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }), modifiers);
           return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
@@ -1134,7 +1144,7 @@ const toolHandlers = {
         if (await humanizeOn(tabId)) {
           // Same key events as the default path below, but with human-shaped
           // inter-key timing instead of a flat interval.
-          await dispatchPlan(tabId, humanize.planType(human(), args.text));
+          await dispatchPlan(tabId, humanize.planType(human(effectiveConfig(tabId).humanize_speed), args.text));
           return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
         }
         // Default path: emit real keydown/keyup around each character.
@@ -1219,7 +1229,7 @@ const toolHandlers = {
           // in the same place as one big wheel event.
           await dispatchPlan(
             tabId,
-            humanize.planScroll(human(), { x: coordinate[0], y: coordinate[1] }, deltaX, deltaY),
+            humanize.planScroll(human(effectiveConfig(tabId).humanize_speed), { x: coordinate[0], y: coordinate[1] }, deltaX, deltaY),
             modifiers
           );
         } else {
@@ -1283,7 +1293,7 @@ const toolHandlers = {
         const [sx, sy] = args.start_coordinate;
         const [ex, ey] = coordinate;
         if (await humanizeOn(tabId)) {
-          const s = human();
+          const s = human(effectiveConfig(tabId).humanize_speed);
           const from = cursorByTab.get(tabId) || { x: sx, y: sy };
           await dispatchPlan(tabId, humanize.planDrag(s, from, { x: sx, y: sy }, { x: ex, y: ey }), modifiers);
           return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };

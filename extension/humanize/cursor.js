@@ -75,11 +75,14 @@ export function planPath(from, to, rng, persona, opts = {}) {
   if (dist < 1.5) return steps; // already there
 
   const targetSize = opts.targetSize || 24;
+  const tempo = opts.tempo || { time: 1, points: 1 };
   const totalMs = moveDurationMs(dist, targetSize, rng, persona);
 
   // Point count scales with distance but stays bounded: enough samples to look
   // continuous, few enough that a long move is not thousands of CDP events.
-  const n = Math.round(clamp(dist / rng.uniform(9, 22), 6, 46));
+  // It also scales with the speed tier — a faster tier draws the same curve
+  // with fewer samples rather than skipping the movement entirely.
+  const n = Math.max(3, Math.round(clamp(dist / rng.uniform(9, 22), 6, 46) * tempo.points));
 
   // Control points offset perpendicular to the line — this is the curvature.
   // Sign is random, so paths bow either way; magnitude scales with distance.

@@ -31,25 +31,57 @@ export { keyDescriptor as keyDescriptorFor };
 export { sampleInBox };
 
 /**
+ * Speed tiers — the time affordance for humanization.
+ *
+ * Realism costs wall-clock: a full trajectory plus human dwells measured ~3.9s
+ * per click on one browser, which is a lot to pay on every action. These let
+ * the caller trade motion detail for latency without turning humanization off.
+ *
+ *   time   scales every delay (approach, dwell, inter-key, scroll ticks)
+ *   points scales how many samples a cursor path is drawn with
+ *
+ * Even the fastest tier keeps the properties that matter: movement before the
+ * click, a landing point inside the target, real key events, exact outcomes.
+ * It has fewer intermediate samples and shorter pauses, not none.
+ */
+export const TEMPOS = {
+  fast: { time: 0.4, points: 0.45 },
+  natural: { time: 1, points: 1 },
+  deliberate: { time: 1.75, points: 1.3 }
+};
+export const DEFAULT_TEMPO = "natural";
+
+/**
  * One "hand" per session: a seeded rng plus a persona (tempo, steadiness,
  * overshoot propensity). Held by the executor and reused, so a session is
  * internally consistent instead of re-rolling its character every action.
  */
-export function createSession(seed) {
+export function createSession(seed, speed = DEFAULT_TEMPO) {
   const rng = makeRng(seed ?? randomSeed());
   const persona = makePersona(rng);
-  return { rng, persona, tm: typematic(rng) };
+  return { rng, persona, tm: typematic(rng), tempo: TEMPOS[speed] || TEMPOS[DEFAULT_TEMPO] };
+}
+
+/** Change the speed tier on a live session without losing its persona. */
+export function setSpeed(s, speed) {
+  s.tempo = TEMPOS[speed] || TEMPOS[DEFAULT_TEMPO];
+  return s;
+}
+
+/** Every delay in a plan goes through here so one tier scales them all. */
+function t(s, ms) {
+  return Math.max(1, Math.round(ms * (s.tempo ? s.tempo.time : 1)));
 }
 
 /** A short pause before acting — the "think time" a human spends orienting. */
 export function thinkDelay(s, weight = 1) {
-  return Math.round(clamp(s.rng.logNormal(190 * weight * s.persona.speed, 1.5), 60, 900));
+  return t(s, clamp(s.rng.logNormal(190 * weight * s.persona.speed, 1.5), 60, 900));
 }
 
 function moveSteps(s, from, to, targetSize) {
   const out = [];
-  for (const p of planPath(from, to, s.rng, s.persona, { targetSize })) {
-    out.push({ k: "sleep", ms: p.ms }, { k: "move", x: p.x, y: p.y });
+  for (const p of planPath(from, to, s.rng, s.persona, { targetSize, tempo: s.tempo })) {
+    out.push({ k: "sleep", ms: t(s, p.ms) }, { k: "move", x: p.x, y: p.y });
   }
   return out;
 }
@@ -63,12 +95,12 @@ export function planClick(s, from, to, opts = {}) {
   const { button = "left", clickCount = 1, targetSize = 24 } = opts;
   const plan = moveSteps(s, from, to, targetSize);
   // A beat between arriving and pressing — nobody clicks the instant they land.
-  plan.push({ k: "sleep", ms: Math.round(s.rng.delay(75, 1.4, 25, 320)) });
+  plan.push({ k: "sleep", ms: t(s, s.rng.delay(75, 1.4, 25, 320)) });
   for (let i = 1; i <= clickCount; i++) {
     if (i > 1) {
       // Between clicks of a burst: a real gap, plus the 1-2px drift a hand
       // has while double-clicking.
-      plan.push({ k: "sleep", ms: Math.round(s.rng.delay(105, 1.25, 60, 190)) });
+      plan.push({ k: "sleep", ms: t(s, s.rng.delay(105, 1.25, 60, 190)) });
       if (s.rng.chance(0.55)) {
         plan.push({
           k: "move",
@@ -79,7 +111,7 @@ export function planClick(s, from, to, opts = {}) {
     }
     plan.push({ k: "down", x: to.x, y: to.y, button, clickCount: i });
     // Press-to-release dwell: the physical time the button is held.
-    plan.push({ k: "sleep", ms: Math.round(s.rng.delay(78, 1.35, 38, 190)) });
+    plan.push({ k: "sleep", ms: t(s, s.rng.delay(78, 1.35, 38, 190)) });
     plan.push({ k: "up", x: to.x, y: to.y, button, clickCount: i });
   }
   return plan;
@@ -93,21 +125,21 @@ export function planClick(s, from, to, opts = {}) {
  */
 export function planHover(s, from, to, opts = {}) {
   const plan = moveSteps(s, from, to, opts.targetSize || 24);
-  plan.push({ k: "sleep", ms: Math.round(s.rng.delay(210, 1.4, 90, 700)) });
+  plan.push({ k: "sleep", ms: t(s, s.rng.delay(210, 1.4, 90, 700)) });
   return plan;
 }
 
 /** Press, travel along a curve, release. */
 export function planDrag(s, from, start, end, opts = {}) {
   const plan = moveSteps(s, from, start, opts.targetSize || 24);
-  plan.push({ k: "sleep", ms: Math.round(s.rng.delay(120, 1.3, 50, 320)) });
+  plan.push({ k: "sleep", ms: t(s, s.rng.delay(120, 1.3, 50, 320)) });
   plan.push({ k: "down", x: start.x, y: start.y, button: "left", clickCount: 1 });
-  plan.push({ k: "sleep", ms: Math.round(s.rng.delay(90, 1.3, 40, 240)) });
-  for (const p of planPath(start, end, s.rng, s.persona, { targetSize: opts.targetSize || 24 })) {
-    plan.push({ k: "sleep", ms: p.ms }, { k: "move", x: p.x, y: p.y });
+  plan.push({ k: "sleep", ms: t(s, s.rng.delay(90, 1.3, 40, 240)) });
+  for (const p of planPath(start, end, s.rng, s.persona, { targetSize: opts.targetSize || 24, tempo: s.tempo })) {
+    plan.push({ k: "sleep", ms: t(s, p.ms) }, { k: "move", x: p.x, y: p.y });
   }
   // Settle before letting go — dropping mid-motion is a machine thing to do.
-  plan.push({ k: "sleep", ms: Math.round(s.rng.delay(130, 1.3, 60, 380)) });
+  plan.push({ k: "sleep", ms: t(s, s.rng.delay(130, 1.3, 60, 380)) });
   plan.push({ k: "up", x: end.x, y: end.y, button: "left", clickCount: 1 });
   return plan;
 }
@@ -143,7 +175,7 @@ export function planScroll(s, at, deltaX, deltaY) {
         dx,
         dy
       });
-      plan.push({ k: "sleep", ms: Math.round(s.rng.delay(46, 1.4, 14, 170)) });
+      plan.push({ k: "sleep", ms: t(s, s.rng.delay(46, 1.4, 14, 170)) });
     }
   }
   return plan;
@@ -167,7 +199,7 @@ export function planType(s, text) {
   const plan = [];
   let prev = null;
   for (const ch of String(text)) {
-    if (prev !== null) plan.push({ k: "sleep", ms: interKeyMs(s.rng, prev, s.persona) });
+    if (prev !== null) plan.push({ k: "sleep", ms: t(s, interKeyMs(s.rng, prev, s.persona)) });
     const d = keyDescriptor(ch);
     if (!d) {
       plan.push({ k: "text", text: ch });
@@ -177,7 +209,7 @@ export function planType(s, text) {
     const mods = d.shift ? 8 : 0;
     plan.push({ k: "kdown", key: ch, code: d.code, keyCode: d.keyCode, mods });
     plan.push({ k: "text", text: ch });
-    plan.push({ k: "sleep", ms: keyHoldMs(s.rng, s.tm, s.persona) });
+    plan.push({ k: "sleep", ms: Math.min(t(s, keyHoldMs(s.rng, s.tm, s.persona)), Math.round(s.tm.initialDelayMs * 0.45)) });
     plan.push({ k: "kup", key: ch, code: d.code, keyCode: d.keyCode, mods });
     prev = ch;
   }
@@ -202,7 +234,7 @@ export function planKey(s, { key, code, keyCode, mods = 0, holdMs = 0 }) {
       elapsed += step;
     }
   } else {
-    plan.push({ k: "sleep", ms: keyHoldMs(s.rng, s.tm, s.persona) });
+    plan.push({ k: "sleep", ms: Math.min(t(s, keyHoldMs(s.rng, s.tm, s.persona)), Math.round(s.tm.initialDelayMs * 0.45)) });
   }
   plan.push({ k: "kup", key, code, keyCode, mods });
   return plan;

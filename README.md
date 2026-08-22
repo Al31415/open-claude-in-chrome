@@ -440,6 +440,9 @@ Every tool, its purpose, and its parity with the official Claude in Chrome exten
 | `switch_browser` | Hand off automation to another Chromium browser | ✗ |
 | `execute_code` | Run sandboxed JS that drives every tool via `chrome.*` | |
 | `update_plan` | Present a plan for approval | |
+| `set_tab_focus` | Surface a tab: select it, optionally raise its window | |
+| `get_config` | Read automation settings and the catalog of what they do | |
+| `set_config` | Change a setting, globally or for one tab | |
 | `recording_ack` | Confirm an imitation-learning recording event | |
 | `retranscribe_recording` | Re-run transcription for a failed recording | |
 
@@ -449,6 +452,44 @@ Notes on the divergences (✗):
 - `upload_image` is file-input-only (target it by `ref`); Claude in Chrome additionally supports dropping an image at a `coordinate` (e.g. Google Docs).
 - `gif_creator`, `shortcuts_list`, and `shortcuts_execute` are stubs.
 - `switch_browser` releases the shared runtime for ~15s so another browser can take over, in place of Claude in Chrome's `list_connected_browsers` / `select_browser` pair.
+
+## Humanized input
+
+Browser automation normally dispatches input the shortest way possible: the
+cursor teleports to a target, the button is pressed and released instantly, a
+scroll arrives as one jump. That is efficient, and it looks nothing like a
+person.
+
+Turn `humanize` on and input is driven the way a hand drives it — curved cursor
+paths with acceleration and overshoot, clicks that land off-centre with a real
+press dwell, scrolls decomposed into momentum ticks, and typing with
+human-shaped inter-key timing:
+
+```
+set_config({ key: "humanize", value: true })
+```
+
+Measured on an instrumented page, the same three clicks produce **3 mouse-move
+events with it off and 41 with it on** (2 vs 39 distinct points) — while clicks,
+mousedowns and mouseups come out identical. That is the guarantee: randomisation
+changes *where inside a target* you land, *how* the cursor gets there, and
+*when* — never *what happens*. Same element, same text, same scroll position.
+
+Realism costs wall-clock, so the time affordance is a setting:
+
+| `humanize_speed` | Behaviour |
+|---|---|
+| `fast` | Fewer path samples, short pauses. Still moves before clicking. |
+| `natural` | Default. The full model. |
+| `deliberate` | Slower and more unhurried. |
+
+Both settings can be scoped to one tab (`set_config({ key, value, tabId })`),
+and `get_config` returns the catalog of recognised settings so the current set
+is always discoverable rather than documented only here.
+
+Note that typing emits real `keydown`/`keyup` events **regardless** of this
+setting — that is parity with Claude in Chrome, which does the same, not a
+humanization extra. `humanize` only changes the timing between them.
 
 ### Claude in Chrome tools not yet supported in Open Claude in Chrome
 
