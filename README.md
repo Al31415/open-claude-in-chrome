@@ -34,7 +34,7 @@
 
 ---
 
-The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 18 MCP tools and matching the official extension's performance.
+The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extension gives Claude Code full browser automation — as long as you stay within Anthropic's allowlist of "safe" sites. Open Claude in Chrome is a clean-room reimplementation that strips the restrictions while keeping all 21 MCP tools and matching the official extension's performance.
 
 ## What's Different
 
@@ -43,8 +43,8 @@ The official [Claude in Chrome](https://code.claude.com/docs/en/chrome) extensio
 | **Domain blocklist** | 58 blocked domains across 11 categories | No blocklist. Navigate anywhere. |
 | **Browser support** | Chrome and Edge only | Any Chromium browser (Chrome, Edge, Brave, Arc, Opera, Vivaldi, etc.) |
 | **Source code** | Closed source | Open source (MIT) |
-| **Tools** | 18 MCP tools | Same 18 MCP tools |
-| **Performance** | Baseline | Statistically indistinguishable cold, and [measurably better](#does-it-actually-match-the-official-extension) with the techniques the open harness allows |
+| **Tools** | 21 MCP tools | Same 21 MCP tools |
+| **Performance** | Baseline | Identical |
 
 ### Blocked Domains in the Official Extension
 
@@ -124,7 +124,7 @@ Claude Code <--stdio MCP--> server-{codemode,hybrid}.js
 ```
 
 Three components:
-1. **Extension** — Manifest V3 with CDP-based browser automation (all 18 tools)
+1. **Extension** — Manifest V3 with CDP-based browser automation (all 21 tools)
 2. **MCP Server** — Node.js process started by Claude Code, exposes tools via MCP
 3. **Native Messaging Host** — Bridge between the MCP server and the extension
 
@@ -132,7 +132,7 @@ The codemode and hybrid servers add a fourth piece — a `wrangler dev` subproce
 
 ## Installation
 
-One flow, top to bottom, turns everything on — all 18 browser tools,
+One flow, top to bottom, turns everything on — all 21 browser tools,
 `execute_code`, and the imitation-learning recorder.
 
 ### Prerequisites
@@ -185,7 +185,7 @@ recording:
 
 ### Step 6: Add the server to Claude Code
 
-The **hybrid** server exposes everything: all 18 tools directly, `execute_code`
+The **hybrid** server exposes everything: all 21 tools directly, `execute_code`
 alongside (the model picks per call), and the recording channel.
 
 ```bash
@@ -270,7 +270,7 @@ To keep it reliable:
    and then `sandbox prewarmed in <n>ms`. `pgrep -fl wrangler` should show one
    process per registered codemode/hybrid server.
 5. **Expect partial degradation, not failure.** If the sandbox never comes up the
-   18 passthrough tools keep working and only `execute_code` errors, so a broken
+   21 passthrough tools keep working and only `execute_code` errors, so a broken
    sidecar looks like "code mode stopped working", not "the browser stopped
    working".
 
@@ -280,12 +280,12 @@ The hybrid server from Step 6 is the superset and the one the install steps
 assume. Two leaner variants exist if you want them, and they can coexist —
 register more than one.
 
-**Default** — the 18 tools, nothing else:
+**Default** — the 21 tools, nothing else:
 ```bash
 claude mcp add open-claude-in-chrome -- node /absolute/path/to/host/mcp-server.js
 ```
 
-**Code mode** — three tools: `execute_code`, `screenshot`, `zoom`. The model writes JS that calls `chrome.*` (the typed API for all 18 tools) in a sandboxed Cloudflare Worker, collapsing multi-step flows into one round trip:
+**Code mode** — three tools: `execute_code`, `screenshot`, `zoom`. The model writes JS that calls `chrome.*` (the typed API for all 21 tools) in a sandboxed Cloudflare Worker, collapsing multi-step flows into one round trip:
 ```bash
 claude mcp add open-claude-in-chrome-codemode -- node /absolute/path/to/host/codemode/server-codemode.js
 ```
@@ -411,28 +411,51 @@ If the model still uses direct tools on the second submission, that's a signal t
 
 ## Available Tools
 
-All 18 tools, identical to Claude in Chrome:
+Every tool, its purpose, and its parity with the official Claude in Chrome extension:
 
-| Tool | Description |
-|------|-------------|
-| `tabs_context_mcp` | Get tab group context |
-| `tabs_create_mcp` | Create new tab |
-| `navigate` | Navigate to URL, back, forward |
-| `computer` | Mouse, keyboard, screenshots (13 actions) |
-| `read_page` | Accessibility tree with element refs |
-| `get_page_text` | Extract article/main text |
-| `find` | Find elements by text/attributes |
-| `form_input` | Set form values by ref |
-| `javascript_tool` | Execute JS in page context |
-| `read_console_messages` | Console output (filtered) |
-| `read_network_requests` | Network activity |
-| `resize_window` | Resize browser window |
-| `upload_image` | Upload screenshot to file input |
-| `gif_creator` | GIF recording (stub) |
-| `shortcuts_list` | List shortcuts (stub) |
-| `shortcuts_execute` | Run shortcut (stub) |
-| `switch_browser` | Switch browser (stub) |
-| `update_plan` | Present plan (auto-approved) |
+- **✓** — in parity with Claude in Chrome (same interface, same behavior)
+- **✗** — present but diverges (a stub, or a capability gap — see the notes)
+- *(blank)* — a new tool with no Claude in Chrome equivalent
+
+| Tool | Purpose | Parity |
+|------|---------|:------:|
+| `tabs_context_mcp` | Get tab group context | ✓ |
+| `tabs_create_mcp` | Create a new tab | ✓ |
+| `tabs_close_mcp` | Close a tab | ✓ |
+| `navigate` | Navigate to URL, back, forward | ✓ |
+| `computer` | Mouse, keyboard, screenshot, zoom | ✓ |
+| `read_page` | Accessibility tree with element refs | ✓ |
+| `get_page_text` | Extract article/main text | ✓ |
+| `find` | Find elements by text/attributes | ✓ |
+| `form_input` | Set form values by ref | ✓ |
+| `javascript_tool` | Execute JS in page context | ✓ |
+| `read_console_messages` | Console output (filtered) | ✓ |
+| `read_network_requests` | Network activity | ✓ |
+| `resize_window` | Resize browser window | ✓ |
+| `file_upload` | Attach local file(s) to a file input (by ref) | ✓ |
+| `upload_image` | Attach a captured screenshot to a file input (by ref) | ✗ |
+| `gif_creator` | GIF recording | ✗ |
+| `shortcuts_list` | List shortcuts | ✗ |
+| `shortcuts_execute` | Run a shortcut | ✗ |
+| `switch_browser` | Hand off automation to another Chromium browser | ✗ |
+| `execute_code` | Run sandboxed JS that drives every tool via `chrome.*` | |
+| `update_plan` | Present a plan for approval | |
+| `recording_ack` | Confirm an imitation-learning recording event | |
+| `retranscribe_recording` | Re-run transcription for a failed recording | |
+
+Notes on the divergences (✗):
+
+- `file_upload` matches Claude in Chrome's interface (`paths`, `ref`, `tabId`) but does **not** restrict sources to session-shared paths — any absolute path on this machine is accepted.
+- `upload_image` is file-input-only (target it by `ref`); Claude in Chrome additionally supports dropping an image at a `coordinate` (e.g. Google Docs).
+- `gif_creator`, `shortcuts_list`, and `shortcuts_execute` are stubs.
+- `switch_browser` releases the shared runtime for ~15s so another browser can take over, in place of Claude in Chrome's `list_connected_browsers` / `select_browser` pair.
+
+### Claude in Chrome tools not yet supported in Open Claude in Chrome
+
+- `browser_batch` — run several tool calls in one round trip. Open Claude in Chrome instead offers `execute_code`, which runs arbitrary JS driving the same tools in one call.
+- `list_connected_browsers` — enumerate attached browsers.
+- `select_browser` — pick which browser drives automation.
+- `upload_image` drop-at-coordinate — Open Claude in Chrome's `upload_image` attaches to a file input by `ref` only.
 
 ## Updating After Code Changes
 

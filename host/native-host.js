@@ -216,6 +216,66 @@ function handleSaveScreenshot(msg) {
   }
 }
 
+// Write a full screenshot to a stable, user-visible location
+// (~/.config/open-claude-in-chrome/screenshots/<timestamp>.jpg) so Claude Code
+// can open the absolute path. Unlike save_screenshot (fire-and-forget), this
+// replies with the written path so the caller can report it to the agent.
+function handleSaveScreenshotToDisk(msg) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dir = path.join(
+    os.homedir(),
+    ".config",
+    "open-claude-in-chrome",
+    "screenshots"
+  );
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const b64 = String(msg.dataUrl || "").replace(/^data:image\/\w+;base64,/, "");
+    if (!b64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) throw new Error("empty or malformed image data");
+    const file = path.join(dir, `${timestamp}.jpg`);
+    fs.writeFileSync(file, Buffer.from(b64, "base64"));
+    writeNativeMessage({ type: "screenshot_saved", id: msg.id, path: file, ok: true });
+  } catch (e) {
+    writeNativeMessage({ type: "screenshot_saved", id: msg.id, ok: false, error: String(e && e.message) });
+  }
+}
+
+// Stage an in-memory screenshot as a real temp file so the extension can
+// attach it to a file input via CDP DOM.setFileInputFiles. The extension holds
+// screenshots as base64 in a Map (never on disk), but setFileInputFiles needs
+// a path, so we materialize the bytes here and return the absolute path.
+// Reply is keyed by msg.id so the extension can correlate it to its request.
+function handleWriteTempFile(msg) {
+  const reply = (payload) => writeNativeMessage({ id: msg.id, type: "temp_file_written", ...payload });
+  try {
+    const dir = path.join(os.homedir(), ".config", "open-claude-in-chrome", "tmp");
+    fs.mkdirSync(dir, { recursive: true });
+    // Sanitize the requested name: no path separators, no traversal.
+    const name = String(msg.filename || "upload.png").replace(/[^\w.\-]/g, "_");
+    const file = path.join(dir, `${Date.now()}_${name}`);
+    const b64 = String(msg.dataUrl || "").replace(/^data:[^;]+;base64,/, "");
+    if (!b64) return reply({ ok: false, error: "no data" });
+    fs.writeFileSync(file, Buffer.from(b64, "base64"));
+    // Best-effort GC: staged uploads have a "<epoch>_<name>" prefix; prune only
+    // files WE staged (that prefix) and only those older than a day, so we never
+    // delete anything another process put in the shared tmp dir. Cap the scan
+    // so a giant directory can't stall this request.
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    try {
+      let scanned = 0;
+      for (const f of fs.readdirSync(dir)) {
+        if (!/^\d+_/.test(f)) continue; // not ours
+        if (++scanned > 200) break; // bound the sync scan
+        const p = path.join(dir, f);
+        if (fs.statSync(p).mtimeMs < cutoff) fs.unlinkSync(p);
+      }
+    } catch { /* best-effort */ }
+    reply({ ok: true, result: file });
+  } catch (e) {
+    reply({ ok: false, error: String(e && e.message) });
+  }
+}
+
 // --- Main: bridge stdin (from extension) <-> TCP (to MCP server) ---
 
 let stdinBuffer = Buffer.alloc(0);
@@ -235,8 +295,16 @@ process.stdin.on("data", (chunk) => {
       handleSaveScreenshot(msg);
       continue;
     }
+    if (msg && msg.type === "save_screenshot_to_disk") {
+      handleSaveScreenshotToDisk(msg);
+      continue;
+    }
     if (msg && msg.type === "save_audio") {
       handleSaveAudio(msg);
+      continue;
+    }
+    if (msg && msg.type === "write_temp_file") {
+      handleWriteTempFile(msg);
       continue;
     }
     // Forward everything else to the MCP server via TCP.

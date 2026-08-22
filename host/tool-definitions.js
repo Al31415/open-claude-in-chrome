@@ -1,4 +1,4 @@
-// The 18 open-claude-in-chrome tool definitions, extracted as data so both
+// The 21 open-claude-in-chrome tool definitions, extracted as data so both
 // the standard stdio MCP server (host/mcp-server.js) and the codemode +
 // hybrid servers can register them without duplicating the schemas.
 //
@@ -161,6 +161,12 @@ export const TOOLS = [
         .optional()
         .describe(
           'The text to type (for `type` action) or the key(s) to press (for `key` action). For `key` action: Provide space-separated keys (e.g., "Backspace Backspace Delete"). Supports keyboard shortcuts using the platform\'s modifier key (use "cmd" on Mac, "ctrl" on Windows/Linux, e.g., "cmd+a" or "ctrl+a" for select all).'
+        ),
+      save_to_disk: z
+        .boolean()
+        .optional()
+        .describe(
+          "Optional, for the `screenshot` and `zoom` actions. Set true to write the captured image to disk (under ~/.config/open-claude-in-chrome/screenshots/) and return its absolute path in the result so it can be opened or shared. Default false."
         )
     }
   },
@@ -471,7 +477,7 @@ export const TOOLS = [
   {
     name: "upload_image",
     description:
-      "Upload a previously captured screenshot or user-uploaded image to a file input or drag & drop target. Supports two approaches: (1) ref - for targeting specific elements, especially hidden file inputs, (2) coordinate - for drag & drop to visible locations like Google Docs. Provide either ref or coordinate, not both.",
+      "Upload a previously captured screenshot (from the computer tool's screenshot action) to a file input. Identify the target with `ref` from read_page or find; the target must be an <input type=\"file\"> (especially useful for hidden inputs).",
     paramShape: {
       imageId: z
         .string()
@@ -485,21 +491,48 @@ export const TOOLS = [
         ),
       ref: z
         .string()
-        .optional()
         .describe(
-          'Element reference ID from read_page or find tools (e.g., "ref_1", "ref_2"). Use this for file inputs (especially hidden ones) or specific elements. Provide either ref or coordinate, not both.'
-        ),
-      coordinate: z
-        .array(z.number())
-        .optional()
-        .describe(
-          "Viewport coordinates [x, y] for drag & drop to a visible location. Use this for drag & drop targets like Google Docs. Provide either ref or coordinate, not both."
+          'Element reference ID of the file input from read_page or find tools (e.g., "ref_1", "ref_2").'
         ),
       filename: z
         .string()
         .optional()
         .describe(
           'Optional filename for the uploaded file (default: "image.png")'
+        )
+    }
+  },
+  {
+    name: "retranscribe_recording",
+    description:
+      "Re-run transcription for a saved recording whose transcript failed at stop (e.g. a transient OpenAI error). Re-assembles the durable audio segments, re-transcribes them, and patches trace.json on disk, overwriting the previous transcript. Returns the updated transcript status and utterance count. Constraints: only works for the MOST RECENT recording recorded after this feature shipped (a newer recording clears the in-browser audio store; older sessions lack the segment anchors needed to map timestamps). Only call it to recover a recording whose transcript actually failed — re-running on a good one replaces the transcript with a fresh result and could worsen it if OpenAI is currently failing.",
+    paramShape: {
+      recording_id: z
+        .string()
+        .describe(
+          "The recording_id shown in the bundle path after a recording_complete notification (e.g. the timestamp-based id)."
+        )
+    }
+  },
+  {
+    name: "file_upload",
+    description:
+      "Upload one or more local files (by absolute path) to a file input element on the page. Use read_page or find to locate the <input type=\"file\">, then pass its ref — do not click file inputs, which opens a native picker you cannot see. Each file must already exist on this machine (the same machine as the browser); the real path is passed straight to the browser, no staging. Keep the combined size of all files in a single call under ~10 MB.",
+    paramShape: {
+      paths: z
+        .array(z.string())
+        .describe(
+          "Absolute paths to the files to upload (e.g., ['/home/user/report.pdf']). Each file must already exist on this machine."
+        ),
+      ref: z
+        .string()
+        .describe(
+          'Element reference ID of the file input from read_page or find tools (e.g., "ref_1", "ref_2").'
+        ),
+      tabId: z
+        .number()
+        .describe(
+          "Tab ID where the file input is located. Must be a tab in the current group. Use tabs_context_mcp first if you don't have a valid tab ID."
         )
     }
   }

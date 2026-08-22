@@ -15,7 +15,11 @@ let tabGroupTabs = new Set();
 const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
+// tabId -> Map<requestId, record> — lets responseReceived augment the entry
+// created by requestWillBeSent instead of recording each request twice.
+const networkByRequestId = new Map();
 const screenshotStore = new Map(); // imageId -> base64
+const screenshotSaves = new Map(); // reqId -> { resolve, reject } for save_to_disk
 
 let heartbeatTimer = null;
 
@@ -35,6 +39,18 @@ async function detectBrowser() {
   if (/Brave/i.test(brands)) return "Brave";
   if (/OPR\//.test(ua)) return "Opera";
   return "Chrome";
+}
+
+// Browser-aware mouse ack strategy. Whether we're on Brave is stable for the
+// life of the service worker, so cache the detection at module level and
+// resolve it lazily (detectBrowser is async). null = not yet determined.
+let IS_BRAVE = null;
+
+async function isBrave() {
+  if (IS_BRAVE === null) {
+    IS_BRAVE = (await detectBrowser()) === "Brave";
+  }
+  return IS_BRAVE;
 }
 
 // --- Keep-alive alarm ---
@@ -72,6 +88,22 @@ function connectNativeHost() {
           recorder.pendingSaves.delete(String(msg.recording_id));
           resolve(msg.ok ? msg.path : null);
         }
+      } else if (msg.type === "screenshot_saved") {
+        // Reply from the native host after writing a screenshot to disk
+        // (save_to_disk on the computer tool's screenshot action).
+        const pending = screenshotSaves.get(String(msg.id));
+        if (pending) {
+          screenshotSaves.delete(String(msg.id));
+          if (msg.ok && msg.path) pending.resolve(msg.path);
+          else pending.reject(new Error(msg.error || "failed to save screenshot"));
+        }
+      } else if (msg.id && pendingNative.has(msg.id)) {
+        // Generic reply to a nativeRequest() (e.g. write_temp_file). The host
+        // echoes the request id back so we can settle the matching promise.
+        const p = pendingNative.get(msg.id);
+        pendingNative.delete(msg.id);
+        if (msg.ok) p.resolve(msg.result);
+        else p.reject(new Error(String(msg.error || "Native request failed")));
       }
     });
 
@@ -136,6 +168,26 @@ function sendError(id, error) {
   } catch {
     // Port disconnected
   }
+}
+
+// --- Native host request/response (ask host to do something, wait for result) ---
+// The recorder's save_* messages are fire-and-forget; upload_image needs a
+// reply (the temp file path). pendingNative correlates a reply by id. Bound
+// the wait so a lost reply can't hang a tool call past the CDP timeout.
+const pendingNative = new Map(); // request id -> { resolve, reject }
+let nativeReqSeq = 0;
+
+function nativeRequest(msg) {
+  return new Promise((resolve, reject) => {
+    if (!nativePort) { reject(new Error("Native host not connected")); return; }
+    const id = `nr_${Date.now()}_${nativeReqSeq++}`;
+    pendingNative.set(id, { resolve, reject });
+    nativePort.postMessage({ ...msg, id });
+    setTimeout(() => {
+      const p = pendingNative.get(id);
+      if (p) { pendingNative.delete(id); p.reject(new Error("Native request timed out")); }
+    }, CDP_TIMEOUT_MS);
+  });
 }
 
 // --- Tab group management ---
@@ -286,6 +338,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   }
   consoleMessages.delete(tabId);
   networkRequests.delete(tabId);
+  networkByRequestId.delete(tabId);
 });
 
 // Handle user dismissing debugger bar
@@ -323,34 +376,69 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     consoleMessages.set(tabId, msgs);
   }
 
+  // Merge CDP network events into one record per requestId so the reader
+  // sees each request once. requestWillBeSent carries the real method + url;
+  // responseReceived augments that same record with the status. A requestId
+  // is reused across redirect hops, so a later event updates the existing
+  // record in place rather than appending a duplicate.
   if (method === "Network.responseReceived" && params.response) {
-    const reqs = networkRequests.get(tabId) || [];
-    reqs.push({
-      url: params.response.url,
-      method: params.response.requestHeaders ? "?" : "GET",
+    recordNetworkEvent(tabId, params.requestId, (existing) => ({
       status: params.response.status,
       statusText: params.response.statusText,
-      type: params.type || "Other",
       mimeType: params.response.mimeType,
-      timestamp: Date.now(),
-    });
-    if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
-    networkRequests.set(tabId, reqs);
+      type: params.type || (existing && existing.type) || "Other",
+      // method + url come from requestWillBeSent; fall back to the old
+      // heuristic only when no earlier event was seen for this id.
+      method: (existing && existing.method) || (params.response.requestHeaders ? "?" : "GET"),
+      url: (existing && existing.url) || params.response.url,
+      timestamp: (existing && existing.timestamp) || Date.now(),
+    }));
   }
 
   if (method === "Network.requestWillBeSent" && params.request) {
-    const reqs = networkRequests.get(tabId) || [];
-    reqs.push({
+    recordNetworkEvent(tabId, params.requestId, (existing) => ({
       url: params.request.url,
       method: params.request.method,
-      status: 0,
-      type: params.type || "Other",
-      timestamp: Date.now(),
-    });
-    if (reqs.length > 1000) reqs.splice(0, reqs.length - 1000);
-    networkRequests.set(tabId, reqs);
+      type: params.type || (existing && existing.type) || "Other",
+      status: (existing && existing.status) || 0,
+      timestamp: (existing && existing.timestamp) || Date.now(),
+    }));
   }
 });
+
+// Append (or update) one entry for a network event, keyed by requestId.
+// makeRecord(existing) returns the fields to merge; when a record already
+// exists for the id (a duplicate event or a redirect hop) it is patched
+// in place so the request appears exactly once in the reader's list.
+function recordNetworkEvent(tabId, requestId, makeRecord) {
+  const reqs = networkRequests.get(tabId) || [];
+  let byId = networkByRequestId.get(tabId);
+  if (!byId) {
+    byId = new Map();
+    networkByRequestId.set(tabId, byId);
+  }
+
+  const existing = byId.get(requestId);
+  if (existing) {
+    Object.assign(existing, makeRecord(existing));
+    return;
+  }
+
+  const record = makeRecord(null);
+  reqs.push(record);
+  byId.set(requestId, record);
+
+  if (reqs.length > 1000) {
+    const evicted = reqs.splice(0, reqs.length - 1000);
+    // Drop the requestId lookups for evicted records so a reused id does
+    // not resurrect a stale entry.
+    const evictedSet = new Set(evicted);
+    for (const [id, rec] of byId) {
+      if (evictedSet.has(rec)) byId.delete(id);
+    }
+  }
+  networkRequests.set(tabId, reqs);
+}
 
 // --- Key code mapping ---
 const KEY_MAP = {
@@ -427,17 +515,17 @@ async function takeScreenshot(tabId) {
   // used by Input.dispatchMouseEvent. No scaling tricks needed.
   const result = await cdp(tabId, "Page.captureScreenshot", {
     format: "jpeg",
-    quality: 55,
+    quality: 45,
     optimizeForSpeed: true,
     captureBeyondViewport: false,
   });
   let base64 = result.data;
 
-  // If still too large (>500KB base64 ≈ ~375KB binary), reduce quality further
-  if (base64.length > 500000) {
+  // If still too large (>350KB base64 ≈ ~262KB binary), reduce quality further
+  if (base64.length > 350000) {
     const smaller = await cdp(tabId, "Page.captureScreenshot", {
       format: "jpeg",
-      quality: 30,
+      quality: 28,
       optimizeForSpeed: true,
       captureBeyondViewport: false,
     });
@@ -453,6 +541,29 @@ async function takeScreenshot(tabId) {
   }
 
   return { base64, imageId };
+}
+
+// Write a captured base64 screenshot to disk via the native host and resolve
+// with the absolute path. Used when the computer tool's screenshot action is
+// called with save_to_disk: true. The native host replies with `screenshot_saved`.
+function writeScreenshotToDisk(base64) {
+  if (!nativePort) return Promise.reject(new Error("native host not connected"));
+  const id = `shot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  return new Promise((resolve, reject) => {
+    screenshotSaves.set(id, { resolve, reject });
+    nativePort.postMessage({
+      type: "save_screenshot_to_disk",
+      id,
+      dataUrl: "data:image/jpeg;base64," + base64,
+    });
+    // Guard against a dead native host so callers never hang forever.
+    setTimeout(() => {
+      if (screenshotSaves.has(id)) {
+        screenshotSaves.delete(id);
+        reject(new Error("timed out waiting for native host to save screenshot"));
+      }
+    }, 5000);
+  });
 }
 
 // --- Mouse helpers ---
@@ -472,7 +583,8 @@ async function takeScreenshot(tabId) {
 // race, because its effect is verified to apply without the ack and nothing
 // depends on it inside the same action. Chrome acks everything instantly,
 // so the awaits cost nothing there.
-const INPUT_ACK_WAIT_MS = 250;
+const INPUT_ACK_WAIT_MS = 250; // Brave: bounded wait for fire-and-forget (mouseWheel never acks)
+const CHROME_INPUT_ACK_WAIT_MS = 50; // Chrome: acks instantly, a short window suffices
 
 async function sendMouseEvent(tabId, params, { awaitAck = true } = {}) {
   await ensureAttached(tabId);
@@ -482,24 +594,36 @@ async function sendMouseEvent(tabId, params, { awaitAck = true } = {}) {
     "CDP Input.dispatchMouseEvent",
   );
   if (awaitAck) {
-    await send;
+    await send; // serial-await path (required on Brave: press/release dropped if not awaited)
     return;
   }
+  // Fire-and-forget path (mouseWheel, and Chrome mouseMoved): wait for the ack
+  // only up to a bounded window so Brave's ~5s-stalled acks don't block us.
+  // Brave needs the full window; Chrome acks instantly, so a short one suffices.
+  const ackWaitMs = (await isBrave()) ? INPUT_ACK_WAIT_MS : CHROME_INPUT_ACK_WAIT_MS;
   await Promise.race([
     send.catch((e) => console.warn("Input.dispatchMouseEvent late ack/failure:", e.message)),
-    sleep(INPUT_ACK_WAIT_MS),
+    sleep(ackWaitMs),
   ]);
 }
 
 async function dispatchMouse(tabId, type, x, y, opts = {}) {
-  await sendMouseEvent(tabId, {
-    type,
-    x,
-    y,
-    button: opts.button || "left",
-    clickCount: opts.clickCount || 1,
-    modifiers: opts.modifiers || 0,
-  });
+  // Chrome acks instantly and applies immediately, so the mouseMoved "move"
+  // sub-event needs no ack and can be fire-and-forget (awaitAck:false). Brave
+  // must keep the serial-await path (its moves silently drop if not awaited).
+  const awaitAck = opts.awaitAck ?? (type === "mouseMoved" ? await isBrave() : true);
+  await sendMouseEvent(
+    tabId,
+    {
+      type,
+      x,
+      y,
+      button: opts.button || "left",
+      clickCount: opts.clickCount || 1,
+      modifiers: opts.modifiers || 0,
+    },
+    { awaitAck },
+  );
 }
 
 async function mouseClick(tabId, x, y, opts = {}) {
@@ -508,9 +632,13 @@ async function mouseClick(tabId, x, y, opts = {}) {
   const modifiers = opts.modifiers || 0;
 
   await dispatchMouse(tabId, "mouseMoved", x, y, { modifiers });
-  await sleep(50);
+  // Brave's debugger pipeline needs a ~50ms settle window between dispatched
+  // events (verified empirically); Chrome acks instantly, so the sleeps are
+  // pure latency there and are dropped to keep clicks snappy.
+  const brave = await isBrave();
+  if (brave) await sleep(50);
   await dispatchMouse(tabId, "mousePressed", x, y, { button, clickCount, modifiers });
-  await sleep(50);
+  if (brave) await sleep(50);
   await dispatchMouse(tabId, "mouseReleased", x, y, { button, clickCount, modifiers });
 }
 
@@ -630,6 +758,8 @@ const toolHandlers = {
     const { url, tabId } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
 
+    await activateTab(tabId);
+
     if (url === "back") {
       await chrome.tabs.goBack(tabId);
     } else if (url === "forward") {
@@ -701,15 +831,27 @@ const toolHandlers = {
           });
           if (vp?.result?.value) dims = vp.result.value;
         } catch {}
+        // save_to_disk: write the captured image to disk and report the path so
+        // Claude Code can open it. Best-effort — never fails the screenshot.
+        let saveNote = "";
+        if (args.save_to_disk) {
+          try {
+            const path = await writeScreenshotToDisk(base64);
+            saveNote = `\nSaved to disk: ${path}`;
+          } catch (e) {
+            saveNote = `\n(Unable to save to disk: ${e.message})`;
+          }
+        }
         return {
           content: [
-            { type: "text", text: `Successfully captured screenshot (${dims}, jpeg) - ID: ${imageId}` },
+            { type: "text", text: `Successfully captured screenshot (${dims}, jpeg) - ID: ${imageId}${saveNote}` },
             { type: "image", data: base64, mimeType: "image/jpeg" },
           ],
         };
       }
 
       case "left_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for left_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers });
         return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
@@ -739,31 +881,38 @@ const toolHandlers = {
       }
 
       case "right_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for right_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers });
         return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "double_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for double_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers });
         return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "triple_click": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for triple_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers });
         return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "hover": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for hover" }] };
         await dispatchMouse(tabId, "mouseMoved", coordinate[0], coordinate[1], { modifiers });
-        await sleep(200);
+        // Let the page apply the hover state; Brave additionally needs a settle
+        // window, Chrome doesn't.
+        if (await isBrave()) await sleep(200);
         return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
       }
 
       case "type": {
+        await activateTab(tabId);
         if (!args.text) return { content: [{ type: "text", text: "text is required for type action" }] };
         await ensureAttached(tabId);
         // Type character by character for better compatibility
@@ -776,6 +925,7 @@ const toolHandlers = {
 
       case "key": {
         if (!args.text) return { content: [{ type: "text", text: "text is required for key action" }] };
+        await activateTab(tabId);
         await ensureAttached(tabId);
         const repeat = Math.min(args.repeat || 1, 100);
         // Parse space-separated key combos
@@ -797,13 +947,16 @@ const toolHandlers = {
               code: resolvedKey.length === 1 ? `Key${resolvedKey.toUpperCase()}` : resolvedKey,
               modifiers: keyMod,
             });
-            await sleep(30);
+            // Brave's debugger pipeline needs a settle window between key
+            // events; Chrome acks instantly, so the sleep is pure latency there.
+            if (await isBrave()) await sleep(30);
           }
         }
         return { content: [{ type: "text", text: `Pressed ${repeat} key${repeat > 1 ? "s" : ""}: ${args.text}` }] };
       }
 
       case "scroll": {
+        await activateTab(tabId);
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for scroll" }] };
         const dir = args.scroll_direction || "down";
         const amount = Math.min(args.scroll_amount || 3, 10);
@@ -817,7 +970,9 @@ const toolHandlers = {
           deltaY,
           modifiers,
         }, { awaitAck: false });
-        await sleep(300);
+        // Let the compositor repaint before the confirmation screenshot; Chrome
+        // repaints fast, Brave needs a longer settle window.
+        await sleep((await isBrave()) ? 300 : 100);
         // The scroll already happened; the confirmation screenshot is best-effort.
         // On a heavy page still re-rendering after the scroll, the capture can
         // block, so bound it and degrade to a text-only result rather than
@@ -835,6 +990,7 @@ const toolHandlers = {
       }
 
       case "scroll_to": {
+        await activateTab(tabId);
         if (!coordinate && !args.ref) return { content: [{ type: "text", text: "coordinate or ref is required for scroll_to" }] };
         if (args.ref) {
           await sendContentMessage(tabId, {
@@ -848,7 +1004,8 @@ const toolHandlers = {
             expression: `window.scrollTo(${coordinate[0]}, ${coordinate[1]})`,
           });
         }
-        await sleep(300);
+        // Let the page repaint the scroll; Chrome is fast, Brave slower.
+        await sleep((await isBrave()) ? 300 : 100);
         return { content: [{ type: "text", text: `Scrolled to target` }] };
       }
 
@@ -859,22 +1016,23 @@ const toolHandlers = {
       }
 
       case "left_click_drag": {
+        await activateTab(tabId);
         if (!args.start_coordinate || !coordinate) {
           return { content: [{ type: "text", text: "start_coordinate and coordinate are required for left_click_drag" }] };
         }
         const [sx, sy] = args.start_coordinate;
         const [ex, ey] = coordinate;
         await dispatchMouse(tabId, "mouseMoved", sx, sy, { modifiers });
-        await sleep(50);
+        if (await isBrave()) await sleep(50);
         await dispatchMouse(tabId, "mousePressed", sx, sy, { button: "left", modifiers });
-        await sleep(50);
+        if (await isBrave()) await sleep(50);
         // Move in steps
         const steps = 10;
         for (let i = 1; i <= steps; i++) {
           const mx = sx + ((ex - sx) * i) / steps;
           const my = sy + ((ey - sy) * i) / steps;
           await dispatchMouse(tabId, "mouseMoved", mx, my, { modifiers });
-          await sleep(20);
+          if (await isBrave()) await sleep(20);
         }
         await dispatchMouse(tabId, "mouseReleased", ex, ey, { button: "left", modifiers });
         return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };
@@ -886,11 +1044,22 @@ const toolHandlers = {
         }
         // Capture full screenshot then crop region
         const { base64: fullBase64 } = await takeScreenshot(tabId);
+        // save_to_disk: write the captured image to disk and report the path.
+        // Best-effort — never fails the zoom.
+        let zoomSaveNote = "";
+        if (args.save_to_disk) {
+          try {
+            const path = await writeScreenshotToDisk(fullBase64);
+            zoomSaveNote = `\nSaved to disk: ${path}`;
+          } catch (e) {
+            zoomSaveNote = `\n(Unable to save to disk: ${e.message})`;
+          }
+        }
         // Return the full screenshot with region info — client can crop
         return {
           content: [
-            { type: "text", text: `Zoom region: [${args.region.join(", ")}]` },
-            { type: "image", data: fullBase64, mimeType: "image/png" },
+            { type: "text", text: `Zoom region: [${args.region.join(", ")}]${zoomSaveNote}` },
+            { type: "image", data: fullBase64, mimeType: "image/jpeg" },
           ],
         };
       }
@@ -1066,6 +1235,7 @@ const toolHandlers = {
 
     if (clear) {
       networkRequests.set(tabId, []);
+      networkByRequestId.set(tabId, new Map());
     }
 
     if (reqs.length === 0) {
@@ -1104,44 +1274,147 @@ const toolHandlers = {
   },
 
   async upload_image(args) {
-    const { imageId, tabId, ref, coordinate, filename = "image.png" } = args;
+    const { imageId, tabId, ref, filename = "image.png" } = args;
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+    if (!ref) {
+      return { content: [{ type: "text", text: "upload_image requires 'ref' (element reference from read_page/find) identifying the target <input type=file>." }] };
+    }
 
     const base64 = screenshotStore.get(imageId);
     if (!base64) {
       return { content: [{ type: "text", text: `Image ${imageId} not found. Take a screenshot first.` }] };
     }
 
-    // Use CDP to set file input
-    if (ref) {
-      // Find the element and set its files via CDP
-      await ensureAttached(tabId);
-      const result = await cdp(tabId, "Runtime.evaluate", {
-        expression: `(() => {
-          const el = window.__unblockedChrome?.resolveRef?.("${ref}");
-          if (!el) return null;
-          return el.tagName.toLowerCase();
-        })()`,
-        returnByValue: true,
-      });
+    await ensureAttached(tabId);
+    await ensureDomain(tabId, "DOM");
 
-      if (result.result?.value === "input") {
-        // For file inputs, we need DOM.setFileInputFiles via CDP
-        // First get the node
-        const doc = await cdp(tabId, "DOM.getDocument", {});
-        const nodeResult = await cdp(tabId, "Runtime.evaluate", {
-          expression: `(() => {
-            const el = window.__unblockedChrome?.resolveRef?.("${ref}");
-            if (el) el.scrollIntoView();
-            return true;
-          })()`,
-          returnByValue: true,
-        });
-        return { content: [{ type: "text", text: `Upload via file input requires a temporary file. Use the file input directly.` }] };
-      }
+    // 1) Resolve the ref through the content-script channel (isolated world,
+    //    where resolveRef lives), stamping a DOM attribute CDP can find. A
+    //    main-world Runtime.evaluate can't see the isolated-world globals.
+    const mark = await sendContentMessage(tabId, { type: "markElementForUpload", ref });
+    if (!mark || !mark.ok) {
+      return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
+    }
+    if (!mark.isFileInput) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
+      return { content: [{ type: "text", text: `Target ref=${ref} is a <${mark.tag}>, not a file input.` }] };
     }
 
-    return { content: [{ type: "text", text: `Image upload for ref=${ref}, coordinate=${coordinate} — use drag & drop or file input.` }] };
+    // 2) Stage the screenshot bytes as a real temp file via the native host.
+    //    The screenshot lives in-memory (base64), so setFileInputFiles needs a
+    //    path on disk to attach.
+    let tempPath;
+    try {
+      tempPath = await nativeRequest({ type: "write_temp_file", dataUrl: base64, filename });
+    } catch (e) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
+      return { content: [{ type: "text", text: `Failed to stage temp file for ${imageId}: ${String(e && e.message)}` }] };
+    }
+    if (!tempPath) {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
+      return { content: [{ type: "text", text: `Failed to stage temp file for ${imageId}.` }] };
+    }
+
+    // 3) Find the marked file input via CDP, then attach the staged file.
+    try {
+      const doc = await cdp(tabId, "DOM.getDocument", {});
+      const q = await cdp(tabId, "DOM.querySelector", {
+        nodeId: doc.root.nodeId,
+        selector: "[data-ocic-upload-target]",
+      });
+      if (!q || !q.nodeId) {
+        return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
+      }
+      await cdp(tabId, "DOM.setFileInputFiles", { nodeId: q.nodeId, files: [tempPath] });
+    } finally {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
+    }
+
+    return { content: [{ type: "text", text: `Uploaded ${filename} (${imageId}) to the file input. Temp file: ${tempPath}` }] };
+  },
+
+  // Re-run a failed transcription for a saved recording. The offscreen doc
+  // re-assembles the durable segments from IndexedDB and re-maps them onto the
+  // shared clock; we then persist the patched trace.json on disk.
+  async retranscribe_recording(args) {
+    const { recording_id } = args;
+    if (!recording_id)
+      return { content: [{ type: "text", text: "recording_id is required." }] };
+
+    const apiKey = await getApiKey();
+    // The offscreen document owns the durable audio buffer; make sure it's alive
+    // before asking it to retranscribe, or the message is dropped (res undefined).
+    await ensureOffscreen();
+    const res = await chrome.runtime.sendMessage({
+      __ocic_offscreen: true,
+      cmd: "retranscribe",
+      recording_id,
+      apiKey,
+    });
+    if (!res || !res.ok) {
+      return { content: [{ type: "text", text: res?.error || "retranscription failed." }] };
+    }
+
+    // Persist the patched trace via the SAME disk-write path used at stop
+    // (saveBundleToDisk -> save_recording -> native host), rather than a
+    // bespoke retry-only write path. Reuse keeps the retry a thin re-run.
+    const path = await saveBundleToDisk({
+      recording_id,
+      schema: res.trace?.schema || "v0",
+      trace: res.trace,
+    }).catch(() => null);
+    const synopsis =
+      `Recording ${recording_id} retranscribed: ${res.transcript_status}. ` +
+      `${(res.cognitive || []).length} utterances. ` +
+      (path ? `trace.json updated on disk (${path}).` : "WARNING: trace.json could not be written to disk.");
+    return { content: [{ type: "text", text: synopsis }] };
+  },
+
+  async file_upload(args) {
+    const { tabId, paths, ref } = args;
+    if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
+    if (!Array.isArray(paths) || paths.length === 0 || !paths.every((p) => typeof p === "string" && p)) {
+      return { content: [{ type: "text", text: "file_upload requires 'paths' — a non-empty array of absolute file paths that already exist on this machine." }] };
+    }
+    if (!ref || typeof ref !== "string") {
+      return { content: [{ type: "text", text: "file_upload requires 'ref' — the element reference of an <input type=file> from read_page or find." }] };
+    }
+
+    await ensureAttached(tabId);
+    await ensureDomain(tabId, "DOM");
+
+    // Resolve the ref through the content-script channel (isolated world, where
+    // resolveRef/__unblockedChrome live), which stamps a DOM attribute on the
+    // element. CDP Runtime.evaluate runs in the page's MAIN world and can't see
+    // the isolated-world globals, so we locate the element via that shared-DOM
+    // attribute instead. Works for hidden file inputs too.
+    const mark = await sendContentMessage(tabId, { type: "markElementForUpload", ref });
+    if (!mark || !mark.ok) {
+      return { content: [{ type: "text", text: `No element found for ref=${ref}. Re-run read_page/find to get a fresh ref.` }] };
+    }
+    if (!mark.isFileInput) {
+      return { content: [{ type: "text", text: `Target ref=${ref} is a <${mark.tag}>, not a file input. Point at the <input type=file> element (read_page/find can locate hidden ones).` }] };
+    }
+
+    // The files are already on disk on the same machine as the browser, so pass
+    // the real paths straight to CDP — no temp staging needed. Find the marked
+    // node via CDP, then DOM.setFileInputFiles.
+    try {
+      const doc = await cdp(tabId, "DOM.getDocument", {});
+      const q = await cdp(tabId, "DOM.querySelector", {
+        nodeId: doc.root.nodeId,
+        selector: "[data-ocic-upload-target]",
+      });
+      if (!q || !q.nodeId) {
+        return { content: [{ type: "text", text: `Could not resolve the file input node for ref=${ref}.` }] };
+      }
+      await cdp(tabId, "DOM.setFileInputFiles", { nodeId: q.nodeId, files: paths });
+    } finally {
+      await sendContentMessage(tabId, { type: "unmarkElementForUpload" }).catch(() => {});
+    }
+
+    const label = paths.length === 1 ? paths[0] : `${paths.length} files`;
+    return { content: [{ type: "text", text: `Attached ${label} to the file input (ref=${ref}).` }] };
   },
 
   async gif_creator(args) {
