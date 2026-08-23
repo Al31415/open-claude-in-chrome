@@ -192,6 +192,33 @@ case "$OS_KIND" in
       "$HOME/.config/microsoft-edge/NativeMessagingHosts"
     install_host "Brave Browser" \
       "$HOME/.config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+    install_host "Chromium" \
+      "$HOME/.config/chromium/NativeMessagingHosts"
+    # Flatpak browsers are sandboxed: they never read ~/.config, only their
+    # own per-app tree, where Flatpak maps ~/.config -> ~/.var/app/<id>/config.
+    # install_host skips any browser whose directory isn't there, so these are
+    # a no-op on a machine with no Flatpak browser installed.
+    install_host "Brave Browser (Flatpak)" \
+      "$HOME/.var/app/com.brave.Browser/config/BraveSoftware/Brave-Browser/NativeMessagingHosts"
+    install_host "Google Chrome (Flatpak)" \
+      "$HOME/.var/app/com.google.Chrome/config/google-chrome/NativeMessagingHosts"
+    install_host "Microsoft Edge (Flatpak)" \
+      "$HOME/.var/app/com.microsoft.Edge/config/microsoft-edge/NativeMessagingHosts"
+    install_host "Chromium (Flatpak)" \
+      "$HOME/.var/app/org.chromium.Chromium/config/chromium/NativeMessagingHosts"
+    # Registering the manifest is necessary but not always sufficient under
+    # Flatpak: the sandbox must also be allowed to launch the host wrapper,
+    # which lives outside it. Only mention this when a Flatpak browser exists.
+    if [ -d "$HOME/.var/app/com.brave.Browser" ] \
+      || [ -d "$HOME/.var/app/com.google.Chrome" ] \
+      || [ -d "$HOME/.var/app/com.microsoft.Edge" ] \
+      || [ -d "$HOME/.var/app/org.chromium.Chromium" ]; then
+      echo ""
+      echo "  Note: a Flatpak browser was detected. Flatpak sandboxes the browser,"
+      echo "  so it also needs permission to run the native host from your home dir:"
+      echo "    flatpak override --user --filesystem=home <app-id>"
+      echo "  (e.g. com.brave.Browser), then fully restart the browser."
+    fi
     ;;
   windows)
     install_windows

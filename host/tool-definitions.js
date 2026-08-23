@@ -475,6 +475,56 @@ export const TOOLS = [
     }
   },
   {
+    name: "get_config",
+    description:
+      "Read the browser-automation settings this extension honors. Returns the default config (applies to every tab), any per-tab overrides, and a catalog of recognized settings with what each one does — that catalog is the source of truth, so read it before setting anything. Pass tabId to also see the config that actually applies to that tab (per-tab override merged over the default).",
+    paramShape: {
+      tabId: z
+        .number()
+        .optional()
+        .describe(
+          "Optional. Also report the effective config for this tab (its override merged over the default)."
+        )
+    }
+  },
+  {
+    name: "set_config",
+    description:
+      "Change a browser-automation setting. Call get_config first to see the recognized settings and what they do. Omit tabId to set the default for every tab, or pass tabId to override the setting for that one tab only (per-tab overrides win, and are dropped when the tab closes). Pass value: null to clear a setting and fall back to the default. Settings persist, so a default you set stays on until you change it.",
+    paramShape: {
+      key: z
+        .string()
+        .describe("Setting name, as listed by get_config (e.g. \"humanize\")."),
+      value: z
+        .union([z.boolean(), z.number(), z.string(), z.null()])
+        .describe("New value for the setting. Use null to clear it."),
+      tabId: z
+        .number()
+        .optional()
+        .describe(
+          "Optional. Scope this change to a single tab instead of changing the default for all tabs."
+        )
+    }
+  },
+  {
+    name: "set_tab_focus",
+    description:
+      "Bring a tab to the user's attention: make it the selected tab in its window, and optionally raise that window in front of every other application. Browser automation never needs this — every tool drives background tabs normally, and nothing else here selects a tab or steals focus — so this is yours to use at your discretion, when the user should actually be looking at something. Reach for it when: they asked to be kept in the loop or told about problems and you hit something worth their eyes; you need a decision or confirmation before doing something consequential or irreversible; you have finished something they are waiting to see; or the page only behaves correctly while its tab is visible (media playback, visibility-dependent apps, timers that throttle in the background). Default to not calling it — routine progress does not warrant an interruption.",
+    paramShape: {
+      tabId: z
+        .number()
+        .describe(
+          "Tab ID to surface. Must be a tab in the current group. Use tabs_context_mcp if you don't have a valid tab ID."
+        ),
+      focus_window: z
+        .boolean()
+        .optional()
+        .describe(
+          "Also raise the browser window above every other application, interrupting whatever the user is doing right now, in whatever app they are in. Use when the interruption is genuinely warranted; leave false (default) to select the tab quietly so they see it whenever they next look at the browser."
+        )
+    }
+  },
+  {
     name: "upload_image",
     description:
       "Upload a previously captured screenshot (from the computer tool's screenshot action) to a file input. Identify the target with `ref` from read_page or find; the target must be an <input type=\"file\"> (especially useful for hidden inputs).",
