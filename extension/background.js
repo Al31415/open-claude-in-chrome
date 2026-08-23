@@ -1858,13 +1858,33 @@ const toolHandlers = {
     const known = Object.prototype.hasOwnProperty.call(CONFIG_SCHEMA, key)
       ? ""
       : ` Note: "${key}" is not a recognized setting, so nothing reads it — it was stored anyway.`;
+
+    // Build the humanization hand NOW rather than lazily on the first action.
+    // Otherwise pinning a seed stores a number and changes nothing observable
+    // until something is clicked, so there is no way to check what you pinned
+    // before relying on it — and get_config would report activeHand: null.
+    // Priming here makes the hand inspectable the moment it is configured, and
+    // lets this call report exactly what it built.
+    let handNote = "";
+    if (key === "humanize_seed" || key === "humanize" || key === "humanize_speed") {
+      const s = human(effective.humanize_speed, effective.humanize_seed);
+      handNote =
+        `\nActive hand (seed ${humanSessionSeed === null ? "random" : humanSessionSeed}): ` +
+        JSON.stringify({
+          speed: +s.persona.speed.toFixed(3),
+          steadiness: +s.persona.steadiness.toFixed(3),
+          overshoot: +s.persona.overshoot.toFixed(3),
+          typeTempo: +s.persona.typeTempo.toFixed(3)
+        });
+    }
     return {
       content: [
         {
           type: "text",
           text:
             `Set ${key}=${JSON.stringify(value === undefined ? null : value)} for ${scope}.${known}\n` +
-            `Effective config${tabId != null ? ` for tab ${tabId}` : ""}: ${JSON.stringify(effective)}`
+            `Effective config${tabId != null ? ` for tab ${tabId}` : ""}: ${JSON.stringify(effective)}` +
+            handNote
         }
       ]
     };

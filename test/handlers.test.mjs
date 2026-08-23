@@ -38,8 +38,12 @@ let configState={default:{humanize:false,humanize_speed:"fast",humanize_seed:nul
 const configHydrated=Promise.resolve();
 // get_config reports the live humanization persona; give the harness one so the
 // handler can be exercised the same way the extension runs it.
-const humanSessionSeed = 12345;
-const humanSession = { persona: { speed: 1.02, steadiness: 0.88, overshoot: 1.10, typeTempo: 0.94 } };
+let humanSessionSeed = 12345;
+let humanSession = { persona: { speed: 1.02, steadiness: 0.88, overshoot: 1.10, typeTempo: 0.94 } };
+// set_config primes the hand so a pinned seed is observable immediately; the
+// harness supplies a stand-in that records what it was asked to build.
+let primedWith = null;
+const human = (speed, seed) => { primedWith = { speed, seed }; humanSessionSeed = (typeof seed === "number" ? seed : null); return humanSession; };
 
 const src = [
   ...["tabs_create_mcp","set_tab_focus","get_config","set_config"].map(
@@ -48,10 +52,10 @@ const src = [
   extractFunction("writeConfig")
 ].join("\n\n");
 const mk = new Function("chrome","tabGroupId","tabGroupTabs","isInGroup","ensureTabGroup","formatTabContext",
-  "CONFIG_KEY","TAB_CONFIG_KEY","CONFIG_SCHEMA","configState","configHydrated","humanSession","humanSessionSeed",
+  "CONFIG_KEY","TAB_CONFIG_KEY","CONFIG_SCHEMA","configState","configHydrated","humanSession","humanSessionSeed","human",
   src + "; return { H_tabs_create_mcp, H_set_tab_focus, H_get_config, H_set_config, effectiveConfig, writeConfig };");
 const H = mk(globalThis.chrome, tabGroupId, tabGroupTabs, isInGroup, ensureTabGroup, formatTabContext,
-  CONFIG_KEY, TAB_CONFIG_KEY, CONFIG_SCHEMA, configState, configHydrated, humanSession, humanSessionSeed);
+  CONFIG_KEY, TAB_CONFIG_KEY, CONFIG_SCHEMA, configState, configHydrated, humanSession, humanSessionSeed, human);
 
 console.log("== #28: creating a tab must not select it or steal focus ==");
 api.length=0;
@@ -103,6 +107,22 @@ ok(!!g.recognizedKeys && !!g.recognizedKeys.humanize, "recognizedKeys catalog re
 ok(!!g.effectiveForTab && g.effectiveForTab.tabId===100, "effective config reported for the requested tab");
 ok(!!g.activeHand && g.activeHand.seed===12345 && typeof g.activeHand.typeTempo==="number",
    "the live humanization hand is reported, so a study can prove it was held constant");
+
+console.log("== pinning a seed takes effect immediately, not on the next click ==");
+primedWith = null;
+const seedRes = await H.H_set_config.set_config({key:"humanize_seed", value:4242});
+ok(primedWith && primedWith.seed === 4242,
+   "set_config rebuilds the hand right away (lazy building would leave a pinned seed unobservable until something is clicked)");
+// The seed VALUE echoed here comes from a module-level variable the real
+// extension reassigns inside human(); the harness passes it as a parameter, so
+// it cannot model that rebinding. What matters, and what is asserted above, is
+// that human() was primed with the new seed. Here we only check the result
+// actually reports a built persona rather than staying silent.
+ok(/Active hand \(seed .+\): \{"speed":/.test(seedRes.content[0].text),
+   `the result reports the persona it just built: "${seedRes.content[0].text.split("\n").pop()}"`);
+primedWith = null;
+await H.H_set_config.set_config({key:"nonsense2", value:1});
+ok(primedWith === null, "an unrelated setting does NOT rebuild the hand");
 
 console.log("== set_config flags unknown keys instead of silently accepting ==");
 const sc = await H.H_set_config.set_config({key:"nonsense", value:1});
