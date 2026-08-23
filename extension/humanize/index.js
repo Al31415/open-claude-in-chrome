@@ -179,10 +179,27 @@ export function planDrag(s, from, start, end, opts = {}) {
   return plan;
 }
 
+// A wheel burst must land in a SHORT window, regardless of speed tier.
+//
+// Measured: with ticks spread over ~2s at the slowest tier, a page scrolled
+// far enough during its own scroll that a nested scrollable slid under the
+// stationary cursor and captured the remaining ticks — the page moved 165px
+// instead of 400px while a list box inside it ate 235px. Same total delta
+// delivered; different elements received it. Nested scrollers (sidebars,
+// feeds, modals) are everywhere, so this is not an edge case.
+//
+// A real wheel flick is fast anyway — the ticks of one gesture arrive within a
+// couple hundred milliseconds; it is the momentum AFTERWARDS that is slow, and
+// that is the page's own animation, not more input events. So capping the
+// burst is both the fix and the more faithful model.
+const SCROLL_BURST_MAX_MS = 180;
+
 /**
  * Scroll as a burst of smaller wheel deltas on an accelerate/coast/decelerate
  * curve, instead of one instantaneous jump. Total delta is EXACTLY the
- * requested amount, so the page ends where the caller asked.
+ * requested amount, so the page ends where the caller asked — and the burst is
+ * bounded in time so every tick lands on the element that was under the cursor
+ * when the gesture started.
  */
 export function planScroll(s, at, deltaX, deltaY) {
   const total = Math.abs(deltaY) || Math.abs(deltaX);
@@ -212,6 +229,14 @@ export function planScroll(s, at, deltaX, deltaY) {
       });
       plan.push({ k: "sleep", ms: t(s, s.rng.delay(46, 1.4, 14, 170)) });
     }
+  }
+  // Compress the burst if the tier stretched it past the budget. Ratios between
+  // ticks are preserved, so the momentum shape survives — only the total span
+  // shrinks, which is what keeps every tick on the same scroller.
+  const burstMs = plan.reduce((a, p) => a + (p.k === "sleep" ? p.ms : 0), 0);
+  if (burstMs > SCROLL_BURST_MAX_MS) {
+    const k = SCROLL_BURST_MAX_MS / burstMs;
+    for (const p of plan) if (p.k === "sleep") p.ms = Math.max(1, Math.round(p.ms * k));
   }
   return plan;
 }

@@ -148,6 +148,24 @@ console.log("== sessions differ from one another (persona) ==");
   ok(DEFAULT_TEMPO === "fast", "the cheaper tier is the default");
 }
 
+// ---- scroll bursts stay short enough to hit one scroller ---------------------
+{
+  const { createSession: mk3 } = await import("../extension/humanize/index.js");
+  console.log("== a wheel burst lands in a short window, whatever the tier ==");
+  for (const tier of ["fastest", "fast", "natural", "relaxed"]) {
+    const s = mk3(4, tier);
+    const p = planScroll(s, { x: 400, y: 300 }, 0, 800);
+    const span = p.filter(x => x.k === "sleep").reduce((a, x) => a + x.ms, 0);
+    const dy = p.filter(x => x.k === "wheel").reduce((a, x) => a + x.dy, 0);
+    // Measured consequence of an unbounded burst: the page scrolled far enough
+    // mid-gesture that a nested scrollable slid under the cursor and ate the
+    // remaining ticks (page moved 165px instead of 400px). Keeping the whole
+    // burst inside a short window is what stops the target migrating.
+    ok(span <= 200, `${tier}: burst spans ${span}ms (<= 200ms, so the scroller cannot change under the cursor)`);
+    ok(dy === 800, `${tier}: total delta still exactly 800`);
+  }
+}
+
 // ---- device-like sampling cadence ------------------------------------------
 {
   const { createSession: mk2 } = await import("../extension/humanize/index.js");
