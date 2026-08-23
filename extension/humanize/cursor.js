@@ -64,9 +64,27 @@ function moveDurationMs(dist, targetSize, rng, persona) {
   return clamp(rng.logNormal(base, 1.22) * persona.speed, 45, 1500);
 }
 
+// Emit cadence, in ms between cursor samples.
+//
+// A real mouse reports on a FIXED clock (125Hz -> 8ms; the browser then
+// coalesces to roughly one event per frame). Velocity is carried by the
+// DISTANCE between consecutive samples, not by varying the gaps. An earlier
+// version randomised each gap by 0.6-1.5x, which is backwards: it produced
+// inter-event timing no polling device generates, and irregular timestamp
+// deltas within a single gesture are exactly what behavioural detection looks
+// at. Sampling on a steady clock is both more faithful and simpler.
+//
+// 8ms is chosen to sit UNDER a frame (~16.7ms), so the browser coalesces about
+// two samples into each delivered mousemove — which means getCoalescedEvents()
+// returns more than one entry, as it does for real fast movement, instead of
+// the single entry every synthetic event otherwise yields.
+const CADENCE_MS = 8;
+const MAX_SAMPLES = 90; // ceiling so a long slow drag can't emit thousands
+
 /**
- * The trajectory: a curved, variably-sampled, accelerate/decelerate path from
- * `from` to `to`, optionally overshooting and correcting back.
+ * The trajectory: a curved path from `from` to `to` sampled on a steady clock,
+ * with velocity carried by point spacing (ease-in-out = accelerate, cruise,
+ * decelerate), optionally overshooting and correcting back.
  * Returns [{x, y, ms}] where ms is the delay BEFORE that point.
  */
 export function planPath(from, to, rng, persona, opts = {}) {
@@ -75,14 +93,27 @@ export function planPath(from, to, rng, persona, opts = {}) {
   if (dist < 1.5) return steps; // already there
 
   const targetSize = opts.targetSize || 24;
-  const tempo = opts.tempo || { time: 1, points: 1 };
-  const totalMs = moveDurationMs(dist, targetSize, rng, persona);
+  const tempo = opts.tempo || { time: 1 };
+  // The speed tier stretches or compresses the DURATION of the movement. It
+  // must never touch the cadence: a real mouse polls at the same rate whether
+  // its owner is moving fast or slow — what changes is how many polling
+  // intervals the movement spans, i.e. the sample COUNT.
+  const totalMs = moveDurationMs(dist, targetSize, rng, persona) * (tempo.time || 1);
 
-  // Point count scales with distance but stays bounded: enough samples to look
-  // continuous, few enough that a long move is not thousands of CDP events.
-  // It also scales with the speed tier — a faster tier draws the same curve
-  // with fewer samples rather than skipping the movement entirely.
-  const n = Math.max(3, Math.round(clamp(dist / rng.uniform(9, 22), 6, 46) * tempo.points));
+  // Sample count follows from duration and cadence, exactly as a real device's
+  // does: a longer movement reports more samples because it spans more polling
+  // intervals — not because we decided to draw more points. A faster speed tier
+  // shortens totalMs, which naturally yields fewer samples.
+  let n = Math.max(3, Math.round(totalMs / CADENCE_MS));
+  // A long, slow movement would otherwise emit hundreds of events. Cap the
+  // count and widen the interval to match, so the movement still takes the
+  // right amount of time — a coarser report rate is far more plausible than a
+  // movement that mysteriously finishes early.
+  let cadence = CADENCE_MS;
+  if (n > MAX_SAMPLES) {
+    cadence = totalMs / MAX_SAMPLES;
+    n = MAX_SAMPLES;
+  }
 
   // Control points offset perpendicular to the line — this is the curvature.
   // Sign is random, so paths bow either way; magnitude scales with distance.
@@ -120,7 +151,10 @@ export function planPath(from, to, rng, persona, opts = {}) {
     const jy = rng.gauss(0, 0.55 * persona.steadiness);
     const pt = { x: Math.round(p.x + jx), y: Math.round(p.y + jy) };
     if (pt.x === prev.x && pt.y === prev.y) continue;
-    steps.push({ x: pt.x, y: pt.y, ms: Math.max(1, Math.round((totalMs / n) * rng.uniform(0.6, 1.5))) });
+    // Steady cadence with only the small jitter a real clock has (a fraction
+    // of a millisecond of scheduling noise), NOT the large random variation a
+    // device never exhibits.
+    steps.push({ x: pt.x, y: pt.y, ms: Math.max(1, Math.round(cadence + rng.gauss(0, 0.8))) });
     prev = pt;
   }
 
@@ -129,10 +163,13 @@ export function planPath(from, to, rng, persona, opts = {}) {
     const hops = rng.int(1, 2);
     for (let i = 1; i <= hops; i++) {
       const t = i / hops;
+      // The corrective sub-movement is a separate ballistic burst, so it has a
+      // real reaction gap before it — that gap is human, the within-burst
+      // cadence stays steady.
       steps.push({
         x: Math.round(aim.x + (to.x - aim.x) * t),
         y: Math.round(aim.y + (to.y - aim.y) * t),
-        ms: Math.round(rng.delay(48, 1.3, 20, 140))
+        ms: Math.round(i === 1 ? rng.delay(60, 1.25, 30, 140) : cadence + rng.gauss(0, 0.8))
       });
     }
   }
@@ -141,7 +178,7 @@ export function planPath(from, to, rng, persona, opts = {}) {
   // change WHERE the action lands.
   const last = steps[steps.length - 1];
   if (!last || last.x !== to.x || last.y !== to.y) {
-    steps.push({ x: to.x, y: to.y, ms: Math.round(rng.delay(28, 1.3, 10, 90)) });
+    steps.push({ x: to.x, y: to.y, ms: Math.max(1, Math.round(cadence + rng.gauss(0, 0.8))) });
   }
   return steps;
 }

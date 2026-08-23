@@ -58,11 +58,11 @@ export { sampleInBox };
 export const TEMPOS = {
   //          time  = cursor/scroll/dwell delays   (cost is per ACTION)
   //          keys  = inter-keystroke delays       (cost is per CHARACTER)
-  //          points = cursor path samples
-  fastest: { time: 0.14, keys: 0.2, points: 0.2 },
-  fast: { time: 0.38, keys: 0.42, points: 0.4 },
-  natural: { time: 1, keys: 1, points: 1 },
-  relaxed: { time: 1.5, keys: 1.12, points: 1.25 }
+  //          (sample count is DERIVED: duration / device cadence)
+  fastest: { time: 0.14, keys: 0.2 },
+  fast: { time: 0.38, keys: 0.42 },
+  natural: { time: 1, keys: 1 },
+  relaxed: { time: 1.5, keys: 1.12 }
 };
 export const DEFAULT_TEMPO = "fast";
 
@@ -114,7 +114,9 @@ export function thinkDelay(s, weight = 1) {
 function moveSteps(s, from, to, targetSize) {
   const out = [];
   for (const p of planPath(from, to, s.rng, s.persona, { targetSize, tempo: s.tempo })) {
-    out.push({ k: "sleep", ms: t(s, p.ms) }, { k: "move", x: p.x, y: p.y });
+    // NOT scaled by t(): planPath already applied the tier to the movement's
+    // duration, and the per-sample interval must stay at device cadence.
+    out.push({ k: "sleep", ms: p.ms }, { k: "move", x: p.x, y: p.y });
   }
   return out;
 }
@@ -169,7 +171,7 @@ export function planDrag(s, from, start, end, opts = {}) {
   plan.push({ k: "down", x: start.x, y: start.y, button: "left", clickCount: 1 });
   plan.push({ k: "sleep", ms: t(s, s.rng.delay(90, 1.3, 40, 240)) });
   for (const p of planPath(start, end, s.rng, s.persona, { targetSize: opts.targetSize || 24, tempo: s.tempo })) {
-    plan.push({ k: "sleep", ms: t(s, p.ms) }, { k: "move", x: p.x, y: p.y });
+    plan.push({ k: "sleep", ms: p.ms }, { k: "move", x: p.x, y: p.y });
   }
   // Settle before letting go — dropping mid-motion is a machine thing to do.
   plan.push({ k: "sleep", ms: t(s, s.rng.delay(130, 1.3, 60, 380)) });

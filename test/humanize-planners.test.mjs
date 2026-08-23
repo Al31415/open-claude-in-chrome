@@ -148,5 +148,36 @@ console.log("== sessions differ from one another (persona) ==");
   ok(DEFAULT_TEMPO === "fast", "the cheaper tier is the default");
 }
 
+// ---- device-like sampling cadence ------------------------------------------
+{
+  const { createSession: mk2 } = await import("../extension/humanize/index.js");
+  console.log("== cursor samples arrive on a steady clock, like a polling device ==");
+  const gapsFor = (tier) => {
+    const s = mk2(9, tier);
+    const plan = planClick(s, { x: 20, y: 20 }, { x: 640, y: 420 });
+    const g = [];
+    for (let i = 0; i < plan.length; i++)
+      if (plan[i].k === "sleep" && plan[i + 1] && plan[i + 1].k === "move") g.push(plan[i].ms);
+    return g;
+  };
+  const stat = (g) => {
+    const m = g.reduce((a, b) => a + b, 0) / g.length;
+    return { mean: m, sd: Math.sqrt(g.reduce((a, b) => a + (b - m) ** 2, 0) / g.length), n: g.length };
+  };
+  for (const tier of ["fastest", "fast", "natural"]) {
+    const st = stat(gapsFor(tier));
+    // A real mouse polls on a fixed clock; velocity lives in the SPACING of the
+    // samples, not in varying the gaps. Irregular within-gesture timing is a
+    // behavioural tell, so the interval must stay tight.
+    ok(st.sd / st.mean < 0.25,
+       `${tier}: sample interval is regular (mean ${st.mean.toFixed(1)}ms, sd ${st.sd.toFixed(2)}ms — ratio ${(st.sd/st.mean).toFixed(2)})`);
+  }
+  const a = stat(gapsFor("fastest")), b = stat(gapsFor("fast")), c = stat(gapsFor("natural"));
+  ok(Math.abs(a.mean - c.mean) < 2,
+     `cadence does NOT change with the speed tier (${a.mean.toFixed(1)}ms vs ${c.mean.toFixed(1)}ms) — a device's poll rate is fixed`);
+  ok(a.n < b.n && b.n < c.n,
+     `the tier changes the SAMPLE COUNT instead (${a.n} < ${b.n} < ${c.n}), which is how a real device encodes a longer movement`);
+}
+
 console.log(fail===0 ? "\nALL HUMANIZE UNIT TESTS PASSED" : `\n${fail} TEST(S) FAILED`);
 process.exit(fail?1:0);
