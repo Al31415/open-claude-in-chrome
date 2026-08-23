@@ -196,10 +196,15 @@ const SCROLL_BURST_MAX_MS = 180;
 
 /**
  * Scroll as a burst of smaller wheel deltas on an accelerate/coast/decelerate
- * curve, instead of one instantaneous jump. Total delta is EXACTLY the
- * requested amount, so the page ends where the caller asked — and the burst is
- * bounded in time so every tick lands on the element that was under the cursor
- * when the gesture started.
+ * curve. Total delta is EXACTLY the requested amount.
+ *
+ * NOTE: the extension no longer uses this for humanized scrolling. Splitting a
+ * scroll into separate wheel events was measured delivering most of it to the
+ * WRONG element — the page scrolls under the stationary cursor and a nested
+ * scrollable slides in to catch the rest — and bounding the burst in time did
+ * not fix it. Humanized scroll now issues Input.synthesizeScrollGesture, which
+ * the browser binds to one element and animates itself. Kept because the
+ * decomposition is still the right shape if a gesture API is unavailable.
  */
 export function planScroll(s, at, deltaX, deltaY) {
   const total = Math.abs(deltaY) || Math.abs(deltaX);

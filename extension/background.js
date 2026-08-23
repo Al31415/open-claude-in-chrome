@@ -552,26 +552,38 @@ const MAX_SCREENSHOT_HEIGHT = 800;
 async function takeScreenshot(tabId) {
   await ensureAttached(tabId);
 
-  // With deviceScaleFactor: 1 set in ensureAttached, screenshots are captured
-  // at CSS pixel dimensions (e.g., 1080x746), matching the coordinate space
-  // used by Input.dispatchMouseEvent. No scaling tricks needed.
-  const result = await cdp(tabId, "Page.captureScreenshot", {
-    format: "jpeg",
-    quality: 45,
-    optimizeForSpeed: true,
-    captureBeyondViewport: false,
-  });
-  let base64 = result.data;
+  // Capture at EXACTLY CSS-pixel dimensions, because the agent reads click
+  // coordinates off this image and clicks are dispatched in CSS pixels.
+  //
+  // ensureAttached sets deviceScaleFactor:1 intending to guarantee that, but
+  // it does not always take (measured on a 1.5x display: devicePixelRatio still
+  // reported 1.5, the viewport was 1008x632, and the captured JPEG came back
+  // 1512x948 — while the tool's own result text said 1008x632). An agent told
+  // to "look at the screenshot and click what you see" then aims 1.5x off and
+  // misses everything. So pin the scale explicitly on the capture itself, via
+  // a clip covering the viewport with scale:1, instead of trusting the
+  // emulation override to have applied.
+  let clip = null;
+  try {
+    const vp = await cdp(tabId, "Runtime.evaluate", {
+      expression: "JSON.stringify([innerWidth, innerHeight])",
+      returnByValue: true
+    });
+    const [vw, vh] = JSON.parse(vp.result.value);
+    if (vw > 0 && vh > 0) clip = { x: 0, y: 0, width: vw, height: vh, scale: 1 };
+  } catch {}
+
+  const shot = async (quality) => {
+    const params = { format: "jpeg", quality, optimizeForSpeed: true, captureBeyondViewport: false };
+    if (clip) params.clip = clip;
+    return (await cdp(tabId, "Page.captureScreenshot", params)).data;
+  };
+
+  let base64 = await shot(45);
 
   // If still too large (>350KB base64 ≈ ~262KB binary), reduce quality further
   if (base64.length > 350000) {
-    const smaller = await cdp(tabId, "Page.captureScreenshot", {
-      format: "jpeg",
-      quality: 28,
-      optimizeForSpeed: true,
-      captureBeyondViewport: false,
-    });
-    base64 = smaller.data;
+    base64 = await shot(28);
   }
 
   const imageId = `screenshot_${Date.now()}`;
@@ -1246,14 +1258,43 @@ const toolHandlers = {
         const deltaX = dir === "left" ? -amount * 100 : dir === "right" ? amount * 100 : 0;
         const deltaY = dir === "up" ? -amount * 100 : dir === "down" ? amount * 100 : 0;
         if (await humanizeOn(tabId)) {
-          // Momentum: many smaller ticks on an accelerate/coast/decelerate
-          // curve. The deltas sum to EXACTLY deltaX/deltaY, so the page lands
-          // in the same place as one big wheel event.
-          await dispatchPlan(
-            tabId,
-            humanize.planScroll(human(effectiveConfig(tabId).humanize_speed), { x: coordinate[0], y: coordinate[1] }, deltaX, deltaY),
-            modifiers
-          );
+          // Momentum via a REAL gesture, not a burst of loose wheel events.
+          //
+          // Splitting the scroll into many ticks was measured landing in the
+          // wrong element: the page scrolls under the stationary cursor, a
+          // nested scrollable slides into place, and the later ticks go to it
+          // instead. On the probe page the document moved 89-109px instead of
+          // 400px while an inner list box absorbed ~300px. Shortening the burst
+          // to <200ms did not fix it — the page moves far enough even in that
+          // window.
+          //
+          // synthesizeScrollGesture is bound to the element under (x, y) when
+          // the gesture STARTS, and the compositor animates it, so the target
+          // cannot migrate mid-scroll and the momentum is the browser's own.
+          // speed is px/sec, so the tier maps onto it directly.
+          const tier = effectiveConfig(tabId).humanize_speed || "fast";
+          const speedPxPerSec = { fastest: 6000, fast: 3500, natural: 1800, relaxed: 1200 }[tier] || 3500;
+          let gestureOk = true;
+          try {
+            await cdp(tabId, "Input.synthesizeScrollGesture", {
+              x: coordinate[0],
+              y: coordinate[1],
+              xDistance: -deltaX,
+              yDistance: -deltaY,
+              speed: speedPxPerSec,
+              gestureSourceType: "mouse"
+            });
+          } catch (e) {
+            // Not available on this build — fall back to the plain single wheel
+            // event, which at least lands on the right element.
+            gestureOk = false;
+            console.warn("synthesizeScrollGesture unavailable:", e.message);
+          }
+          if (!gestureOk) {
+            await sendMouseEvent(tabId, {
+              type: "mouseWheel", x: coordinate[0], y: coordinate[1], deltaX, deltaY, modifiers
+            }, { awaitAck: false });
+          }
         } else {
         await sendMouseEvent(tabId, {
           type: "mouseWheel",
