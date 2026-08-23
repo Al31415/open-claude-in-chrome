@@ -34,8 +34,12 @@ const ensureTabGroup = async () => {};
 const formatTabContext = (tabs) => ({content:[{type:"text",text:JSON.stringify({availableTabs:tabs.map(t=>({tabId:t.id}))})}]});
 const CONFIG_KEY="ocic_config_v1", TAB_CONFIG_KEY="ocic_tab_config_v1";
 const CONFIG_SCHEMA={humanize:"drive input like a person"};
-let configState={default:{humanize:false},byTab:{}};
+let configState={default:{humanize:false,humanize_speed:"fast",humanize_seed:null},byTab:{}};
 const configHydrated=Promise.resolve();
+// get_config reports the live humanization persona; give the harness one so the
+// handler can be exercised the same way the extension runs it.
+const humanSessionSeed = 12345;
+const humanSession = { persona: { speed: 1.02, steadiness: 0.88, overshoot: 1.10, typeTempo: 0.94 } };
 
 const src = [
   ...["tabs_create_mcp","set_tab_focus","get_config","set_config"].map(
@@ -44,10 +48,10 @@ const src = [
   extractFunction("writeConfig")
 ].join("\n\n");
 const mk = new Function("chrome","tabGroupId","tabGroupTabs","isInGroup","ensureTabGroup","formatTabContext",
-  "CONFIG_KEY","TAB_CONFIG_KEY","CONFIG_SCHEMA","configState","configHydrated",
+  "CONFIG_KEY","TAB_CONFIG_KEY","CONFIG_SCHEMA","configState","configHydrated","humanSession","humanSessionSeed",
   src + "; return { H_tabs_create_mcp, H_set_tab_focus, H_get_config, H_set_config, effectiveConfig, writeConfig };");
 const H = mk(globalThis.chrome, tabGroupId, tabGroupTabs, isInGroup, ensureTabGroup, formatTabContext,
-  CONFIG_KEY, TAB_CONFIG_KEY, CONFIG_SCHEMA, configState, configHydrated);
+  CONFIG_KEY, TAB_CONFIG_KEY, CONFIG_SCHEMA, configState, configHydrated, humanSession, humanSessionSeed);
 
 console.log("== #28: creating a tab must not select it or steal focus ==");
 api.length=0;
@@ -97,6 +101,8 @@ console.log("== get_config reports the schema ==");
 const g = JSON.parse((await H.H_get_config.get_config({tabId:100})).content[0].text);
 ok(!!g.recognizedKeys && !!g.recognizedKeys.humanize, "recognizedKeys catalog returned");
 ok(!!g.effectiveForTab && g.effectiveForTab.tabId===100, "effective config reported for the requested tab");
+ok(!!g.activeHand && g.activeHand.seed===12345 && typeof g.activeHand.typeTempo==="number",
+   "the live humanization hand is reported, so a study can prove it was held constant");
 
 console.log("== set_config flags unknown keys instead of silently accepting ==");
 const sc = await H.H_set_config.set_config({key:"nonsense", value:1});
