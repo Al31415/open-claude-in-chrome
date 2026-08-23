@@ -1,4 +1,4 @@
-import { createSession, planClick, planHover, planDrag, planScroll, planType, planKey, sampleInBox } from "../extension/humanize/index.js";
+import { createSession, planClick, planHover, planDrag, planType, planKey, sampleInBox } from "../extension/humanize/index.js";
 let fail = 0;
 const ok = (c, m) => { console.log((c ? "  PASS " : "  FAIL ") + m); if (!c) fail++; };
 
@@ -56,12 +56,10 @@ console.log("== deliberate long hold renders OS auto-repeat ==");
 { const s=createSession(9); const plan=planKey(s,{key:"Enter",code:"Enter",keyCode:13});
   ok(plan.filter(p=>p.k==="kdown").length===1 && !plan.some(p=>p.autoRepeat), "a normal press does NOT repeat"); }
 
-console.log("== INVARIANT: scroll total delta is exact ==");
-{ let exact=true; for(let i=0;i<200;i++){ const s=createSession(i); const want=[0,300,-500,1000][i%4]; if(!want) continue;
-    const sum=planScroll(s,{x:400,y:300},0,want).filter(p=>p.k==="wheel").reduce((a,p)=>a+p.dy,0);
-    if(sum!==want) { exact=false; console.log("   got",sum,"want",want); } }
-  ok(exact, "wheel deltas always sum to exactly the requested amount");
-  const s=createSession(1); ok(planScroll(s,{x:1,y:1},0,300).filter(p=>p.k==="wheel").length>2, "scroll is decomposed into multiple ticks (momentum)"); }
+// (No scroll invariant here any more: humanized scrolling was removed after
+// two attempts changed where the page landed. The extension now issues the
+// same single wheel event with or without humanization, so scroll equivalence
+// holds by construction rather than by assertion.)
 
 console.log("== sampleInBox stays inside the element ==");
 { let inside=true; const s=createSession(2); const rect={x:100,y:200,width:60,height:24};
@@ -168,24 +166,6 @@ console.log("== sessions differ from one another (persona) ==");
      "with no seed, each session still draws its own hand (no shared signature)");
 }
 
-// ---- scroll bursts stay short enough to hit one scroller ---------------------
-{
-  const { createSession: mk3 } = await import("../extension/humanize/index.js");
-  console.log("== a wheel burst lands in a short window, whatever the tier ==");
-  for (const tier of ["fastest", "fast", "natural", "relaxed"]) {
-    const s = mk3(4, tier);
-    const p = planScroll(s, { x: 400, y: 300 }, 0, 800);
-    const span = p.filter(x => x.k === "sleep").reduce((a, x) => a + x.ms, 0);
-    const dy = p.filter(x => x.k === "wheel").reduce((a, x) => a + x.dy, 0);
-    // Measured consequence of an unbounded burst: the page scrolled far enough
-    // mid-gesture that a nested scrollable slid under the cursor and ate the
-    // remaining ticks (page moved 165px instead of 400px). Keeping the whole
-    // burst inside a short window is what stops the target migrating.
-    ok(span <= 200, `${tier}: burst spans ${span}ms (<= 200ms, so the scroller cannot change under the cursor)`);
-    ok(dy === 800, `${tier}: total delta still exactly 800`);
-  }
-}
-
 // ---- device-like sampling cadence ------------------------------------------
 {
   const { createSession: mk2 } = await import("../extension/humanize/index.js");
@@ -202,7 +182,7 @@ console.log("== sessions differ from one another (persona) ==");
     const m = g.reduce((a, b) => a + b, 0) / g.length;
     return { mean: m, sd: Math.sqrt(g.reduce((a, b) => a + (b - m) ** 2, 0) / g.length), n: g.length };
   };
-  for (const tier of ["fastest", "fast", "natural"]) {
+  for (const tier of ["fastest", "fast", "natural", "relaxed"]) {
     const st = stat(gapsFor(tier));
     // A real mouse polls on a fixed clock; velocity lives in the SPACING of the
     // samples, not in varying the gaps. Irregular within-gesture timing is a
@@ -211,6 +191,11 @@ console.log("== sessions differ from one another (persona) ==");
        `${tier}: sample interval is regular (mean ${st.mean.toFixed(1)}ms, sd ${st.sd.toFixed(2)}ms — ratio ${(st.sd/st.mean).toFixed(2)})`);
   }
   const a = stat(gapsFor("fastest")), b = stat(gapsFor("fast")), c = stat(gapsFor("natural"));
+  const d = stat(gapsFor("relaxed"));
+  // Regression guard: a sample-count ceiling used to widen the interval on the
+  // slowest tier (~12ms vs 8ms), making the tier change the apparent poll rate.
+  ok(Math.abs(d.mean - c.mean) < 2,
+     `the SLOWEST tier still reports at device cadence (${d.mean.toFixed(1)}ms vs ${c.mean.toFixed(1)}ms) — no widening from a sample cap`);
   ok(Math.abs(a.mean - c.mean) < 2,
      `cadence does NOT change with the speed tier (${a.mean.toFixed(1)}ms vs ${c.mean.toFixed(1)}ms) — a device's poll rate is fixed`);
   ok(a.n < b.n && b.n < c.n,

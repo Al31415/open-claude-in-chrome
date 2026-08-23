@@ -79,7 +79,16 @@ function moveDurationMs(dist, targetSize, rng, persona) {
 // returns more than one entry, as it does for real fast movement, instead of
 // the single entry every synthetic event otherwise yields.
 const CADENCE_MS = 8;
-const MAX_SAMPLES = 90; // ceiling so a long slow drag can't emit thousands
+
+// No single cursor movement runs longer than this. Bounding the DURATION is
+// what keeps the event count sane; an earlier version capped the sample COUNT
+// instead and widened the interval to compensate, which silently made the
+// slowest tier report at ~12ms instead of 8ms — reintroducing the very
+// artefact the fixed cadence exists to remove (a device's poll rate does not
+// change with how far you are dragging). A duration ceiling is a claim about
+// hands; a sample ceiling is a claim about the wire, and only one of those
+// should shape the timing.
+const MAX_MOVE_MS = 2000;
 
 /**
  * The trajectory: a curved path from `from` to `to` sampled on a steady clock,
@@ -98,22 +107,18 @@ export function planPath(from, to, rng, persona, opts = {}) {
   // must never touch the cadence: a real mouse polls at the same rate whether
   // its owner is moving fast or slow — what changes is how many polling
   // intervals the movement spans, i.e. the sample COUNT.
-  const totalMs = moveDurationMs(dist, targetSize, rng, persona) * (tempo.time || 1);
+  const totalMs = clamp(
+    moveDurationMs(dist, targetSize, rng, persona) * (tempo.time || 1),
+    40,
+    MAX_MOVE_MS
+  );
 
   // Sample count follows from duration and cadence, exactly as a real device's
   // does: a longer movement reports more samples because it spans more polling
   // intervals — not because we decided to draw more points. A faster speed tier
   // shortens totalMs, which naturally yields fewer samples.
-  let n = Math.max(3, Math.round(totalMs / CADENCE_MS));
-  // A long, slow movement would otherwise emit hundreds of events. Cap the
-  // count and widen the interval to match, so the movement still takes the
-  // right amount of time — a coarser report rate is far more plausible than a
-  // movement that mysteriously finishes early.
-  let cadence = CADENCE_MS;
-  if (n > MAX_SAMPLES) {
-    cadence = totalMs / MAX_SAMPLES;
-    n = MAX_SAMPLES;
-  }
+  const n = Math.max(3, Math.round(totalMs / CADENCE_MS));
+  const cadence = CADENCE_MS;
 
   // Control points offset perpendicular to the line — this is the curvature.
   // Sign is random, so paths bow either way; magnitude scales with distance.

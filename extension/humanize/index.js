@@ -179,72 +179,18 @@ export function planDrag(s, from, start, end, opts = {}) {
   return plan;
 }
 
-// A wheel burst must land in a SHORT window, regardless of speed tier.
+// NOTE: there is deliberately no scroll planner here.
 //
-// Measured: with ticks spread over ~2s at the slowest tier, a page scrolled
-// far enough during its own scroll that a nested scrollable slid under the
-// stationary cursor and captured the remaining ticks — the page moved 165px
-// instead of 400px while a list box inside it ate 235px. Same total delta
-// delivered; different elements received it. Nested scrollers (sidebars,
-// feeds, modals) are everywhere, so this is not an edge case.
-//
-// A real wheel flick is fast anyway — the ticks of one gesture arrive within a
-// couple hundred milliseconds; it is the momentum AFTERWARDS that is slow, and
-// that is the page's own animation, not more input events. So capping the
-// burst is both the fix and the more faithful model.
-const SCROLL_BURST_MAX_MS = 180;
-
-/**
- * Scroll as a burst of smaller wheel deltas on an accelerate/coast/decelerate
- * curve. Total delta is EXACTLY the requested amount.
- *
- * NOTE: the extension no longer uses this for humanized scrolling. Splitting a
- * scroll into separate wheel events was measured delivering most of it to the
- * WRONG element — the page scrolls under the stationary cursor and a nested
- * scrollable slides in to catch the rest — and bounding the burst in time did
- * not fix it. Humanized scroll now issues Input.synthesizeScrollGesture, which
- * the browser binds to one element and animates itself. Kept because the
- * decomposition is still the right shape if a gesture API is unavailable.
- */
-export function planScroll(s, at, deltaX, deltaY) {
-  const total = Math.abs(deltaY) || Math.abs(deltaX);
-  const n = Math.round(clamp(total / s.rng.uniform(38, 85), 3, 14));
-  // Weights form a bell: small first nudge, bigger middle, tapering tail.
-  const weights = [];
-  for (let i = 0; i < n; i++) {
-    const t = (i + 0.5) / n;
-    weights.push(Math.sin(Math.PI * t) * s.rng.uniform(0.75, 1.25) + 0.12);
-  }
-  const sum = weights.reduce((a, b) => a + b, 0);
-  const plan = [];
-  let accX = 0, accY = 0;
-  for (let i = 0; i < n; i++) {
-    const share = weights[i] / sum;
-    // Last tick takes the remainder so the total is exact, never off-by-a-pixel.
-    const dx = i === n - 1 ? deltaX - accX : Math.round(deltaX * share);
-    const dy = i === n - 1 ? deltaY - accY : Math.round(deltaY * share);
-    accX += dx; accY += dy;
-    if (dx || dy) {
-      plan.push({
-        k: "wheel",
-        x: at.x + s.rng.int(-1, 1),
-        y: at.y + s.rng.int(-1, 1),
-        dx,
-        dy
-      });
-      plan.push({ k: "sleep", ms: t(s, s.rng.delay(46, 1.4, 14, 170)) });
-    }
-  }
-  // Compress the burst if the tier stretched it past the budget. Ratios between
-  // ticks are preserved, so the momentum shape survives — only the total span
-  // shrinks, which is what keeps every tick on the same scroller.
-  const burstMs = plan.reduce((a, p) => a + (p.k === "sleep" ? p.ms : 0), 0);
-  if (burstMs > SCROLL_BURST_MAX_MS) {
-    const k = SCROLL_BURST_MAX_MS / burstMs;
-    for (const p of plan) if (p.k === "sleep") p.ms = Math.max(1, Math.round(p.ms * k));
-  }
-  return plan;
-}
+// Humanized scrolling was tried twice and abandoned both times, because each
+// attempt changed the OUTCOME, which humanization must never do:
+//   - splitting the scroll into wheel ticks spread over time let the page move
+//     a nested scrollable under the stationary cursor, which then ate the rest
+//     (the page moved 89-109px instead of 400px);
+//   - Input.synthesizeScrollGesture fixed that but measures in literal pixels
+//     while a wheel event's deltaY goes through the browser's own scaling, so
+//     the same request travelled 600px humanized against 400px plain.
+// The extension now issues the identical single wheel event either way and
+// humanizes only the cursor's approach to the scroll position.
 
 /**
  * Type text with real key events AND exactly-once insertion.

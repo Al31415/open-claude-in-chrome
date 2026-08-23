@@ -70,13 +70,6 @@ console.log("== ordering: keydown BEFORE its insertText, keyup AFTER ==");
 { const seq = calls.filter(c=>c.fn==="cdp").map(c=>c.method==="Input.insertText"?"T":(c.type==="rawKeyDown"?"D":"U")).join("");
   ok(/^(DTU)+$/.test(seq), `event order is strictly keydown->text->keyup per char (${seq})`); }
 
-console.log("== scroll plan -> multiple wheel events, exact total ==");
-reset();
-await dispatchPlan(1, humanize.planScroll(s, {x:200,y:200}, 0, 300), 0);
-const wheels = calls.filter(c=>c.fn==="mouse" && c.type==="mouseWheel");
-ok(wheels.length>2, `${wheels.length} wheel events (momentum, not one jump)`);
-ok(wheels.reduce((a,w)=>a+w.deltaY,0)===300, "wheel deltas sum to exactly the requested 300");
-
 console.log("== long hold renders OS auto-repeat through the executor ==");
 reset();
 await dispatchPlan(1, humanize.planKey(s, {key:"Backspace",code:"Backspace",keyCode:8,holdMs:1000}), 0);
