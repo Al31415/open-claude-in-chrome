@@ -148,6 +148,26 @@ console.log("== sessions differ from one another (persona) ==");
   ok(DEFAULT_TEMPO === "fast", "the cheaper tier is the default");
 }
 
+// ---- a pinned seed makes the hand reproducible ------------------------------
+{
+  const { createSession: mk4 } = await import("../extension/humanize/index.js");
+  console.log("== humanize_seed pins the persona, so a comparison can be controlled ==");
+  const hand = (s) => JSON.stringify(s.persona);
+  ok(hand(mk4(12345, "natural")) === hand(mk4(12345, "natural")),
+     "same seed rebuilds an identical hand");
+  ok(hand(mk4(12345, "natural")) !== hand(mk4(999, "natural")),
+     "a different seed gives a different hand");
+  // The hand must not depend on the tier, or a study varying only the speed
+  // would silently be varying the operator too.
+  ok(hand(mk4(12345, "fastest")) === hand(mk4(12345, "relaxed")),
+     "the SAME seed gives the same hand at every speed tier — so tier is the only variable");
+  // And the same plan must reproduce exactly, not merely the persona.
+  const planOf = (t) => JSON.stringify(planClick(mk4(777, t), { x: 5, y: 5 }, { x: 500, y: 300 }));
+  ok(planOf("natural") === planOf("natural"), "a pinned seed reproduces the whole trajectory, not just the persona");
+  ok(hand(mk4(undefined, "natural")) !== hand(mk4(undefined, "natural")),
+     "with no seed, each session still draws its own hand (no shared signature)");
+}
+
 // ---- scroll bursts stay short enough to hit one scroller ---------------------
 {
   const { createSession: mk3 } = await import("../extension/humanize/index.js");

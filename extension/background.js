@@ -34,10 +34,27 @@ const cursorByTab = new Map(); // tabId -> { x, y }
 // session is internally consistent rather than re-rolling its character every
 // click. Lazily created — costs nothing when humanize is off.
 let humanSession = null;
-function human(speed) {
+let humanSessionSeed = null; // the seed the live session was built from
+
+/**
+ * The humanization "hand" for this browser: one persona (tempo, steadiness,
+ * overshoot) reused across actions and tabs, because a person does not become
+ * someone else between clicks or when they switch tab.
+ *
+ * With humanize_seed unset the hand is random per service-worker lifetime,
+ * which is what production wants — two sessions should not share a trajectory
+ * signature. Pinning the seed rebuilds the session deterministically, so a
+ * controlled comparison can hold the hand fixed and vary only the tier.
+ */
+function human(speed, seed) {
   const tier = speed || "fast";
-  if (!humanSession) humanSession = humanize.createSession(undefined, tier);
-  else humanize.setSpeed(humanSession, tier);
+  const wantSeed = typeof seed === "number" ? seed : null;
+  if (!humanSession || wantSeed !== humanSessionSeed) {
+    humanSession = humanize.createSession(wantSeed === null ? undefined : wantSeed, tier);
+    humanSessionSeed = wantSeed;
+  } else {
+    humanize.setSpeed(humanSession, tier);
+  }
   return humanSession;
 }
 
@@ -709,7 +726,7 @@ async function mouseClick(tabId, x, y, opts = {}) {
   // Humanized: approach along a curved path from wherever this tab's cursor
   // actually is, land on the requested point, press/release with real dwell.
   if (await humanizeOn(tabId)) {
-    const s = human(effectiveConfig(tabId).humanize_speed);
+    const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
     const from = cursorByTab.get(tabId) || { x: Math.max(0, x - 220), y: Math.max(0, y - 160) };
     await dispatchPlan(
       tabId,
@@ -762,7 +779,7 @@ const CONFIG_SCHEMA = {
     "while humanize is true."
 };
 
-let configState = { default: { humanize: false, humanize_speed: "fast" }, byTab: {} };
+let configState = { default: { humanize: false, humanize_speed: "fast", humanize_seed: null }, byTab: {} };
 let configHydrated = null;
 
 async function hydrateConfig() {
@@ -770,7 +787,7 @@ async function hydrateConfig() {
     const local = await chrome.storage.local.get(CONFIG_KEY);
     const session = await chrome.storage.session.get(TAB_CONFIG_KEY);
     configState = {
-      default: { humanize: false, humanize_speed: "fast", ...(local[CONFIG_KEY] || {}) },
+      default: { humanize: false, humanize_speed: "fast", humanize_seed: null, ...(local[CONFIG_KEY] || {}) },
       byTab: session[TAB_CONFIG_KEY] || {}
     };
   } catch {}
@@ -1159,7 +1176,7 @@ const toolHandlers = {
           // Curved approach, then park STILL. No tremor while holding: a hover
           // exists to keep a tooltip/menu open, and jitter near an element edge
           // can cross the boundary, fire mouseleave and dismiss it.
-          const s = human(effectiveConfig(tabId).humanize_speed);
+          const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
           const from = cursorByTab.get(tabId) || { x: Math.max(0, coordinate[0] - 200), y: Math.max(0, coordinate[1] - 150) };
           await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }), modifiers);
           return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
@@ -1178,7 +1195,7 @@ const toolHandlers = {
         if (await humanizeOn(tabId)) {
           // Same key events as the default path below, but with human-shaped
           // inter-key timing instead of a flat interval.
-          await dispatchPlan(tabId, humanize.planType(human(effectiveConfig(tabId).humanize_speed), args.text));
+          await dispatchPlan(tabId, humanize.planType(human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed), args.text));
           return { content: [{ type: "text", text: `Typed "${args.text.substring(0, 50)}${args.text.length > 50 ? "..." : ""}"` }] };
         }
         // Default path: emit real keydown/keyup around each character.
@@ -1356,7 +1373,7 @@ const toolHandlers = {
         const [sx, sy] = args.start_coordinate;
         const [ex, ey] = coordinate;
         if (await humanizeOn(tabId)) {
-          const s = human(effectiveConfig(tabId).humanize_speed);
+          const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
           const from = cursorByTab.get(tabId) || { x: sx, y: sy };
           await dispatchPlan(tabId, humanize.planDrag(s, from, { x: sx, y: sy }, { x: ex, y: ey }), modifiers);
           return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };
@@ -1811,7 +1828,18 @@ const toolHandlers = {
     const payload = {
       default: configState.default,
       perTab: configState.byTab,
-      recognizedKeys: CONFIG_SCHEMA
+      recognizedKeys: CONFIG_SCHEMA,
+      // The persona currently in use, so a comparison can record it and show
+      // the hand really was held constant rather than assuming it.
+      activeHand: humanSession
+        ? {
+            seed: humanSessionSeed,
+            speed: +humanSession.persona.speed.toFixed(3),
+            steadiness: +humanSession.persona.steadiness.toFixed(3),
+            overshoot: +humanSession.persona.overshoot.toFixed(3),
+            typeTempo: +humanSession.persona.typeTempo.toFixed(3)
+          }
+        : null
     };
     if (tabId !== undefined && tabId !== null) {
       payload.effectiveForTab = { tabId, config: effectiveConfig(tabId) };
