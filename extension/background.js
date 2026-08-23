@@ -1275,43 +1275,36 @@ const toolHandlers = {
         const deltaX = dir === "left" ? -amount * 100 : dir === "right" ? amount * 100 : 0;
         const deltaY = dir === "up" ? -amount * 100 : dir === "down" ? amount * 100 : 0;
         if (await humanizeOn(tabId)) {
-          // Momentum via a REAL gesture, not a burst of loose wheel events.
+          // Humanize the APPROACH, deliver the scroll with the same single
+          // wheel event the non-humanized path uses.
           //
-          // Splitting the scroll into many ticks was measured landing in the
-          // wrong element: the page scrolls under the stationary cursor, a
-          // nested scrollable slides into place, and the later ticks go to it
-          // instead. On the probe page the document moved 89-109px instead of
-          // 400px while an inner list box absorbed ~300px. Shortening the burst
-          // to <200ms did not fix it — the page moves far enough even in that
-          // window.
+          // Two attempts at decomposing the scroll both broke the invariant
+          // that humanization must not change outcomes, in opposite ways:
+          //   - many wheel ticks spread over time: the page scrolled under the
+          //     stationary cursor, a nested scrollable slid into place and ate
+          //     the rest (page moved 89-109px instead of 400px). Capping the
+          //     burst under 200ms did not help.
+          //   - Input.synthesizeScrollGesture: fixed the targeting (the nested
+          //     box stayed at 0) but its yDistance is literal pixels, while a
+          //     wheel event's deltaY goes through the browser's own scaling —
+          //     the same request scrolled 600px humanized vs 400px plain.
+          //     Matching them would mean hardcoding a platform-specific factor.
           //
-          // synthesizeScrollGesture is bound to the element under (x, y) when
-          // the gesture STARTS, and the compositor animates it, so the target
-          // cannot migrate mid-scroll and the momentum is the browser's own.
-          // speed is px/sec, so the tier maps onto it directly.
-          const tier = effectiveConfig(tabId).humanize_speed || "fast";
-          const speedPxPerSec = { fastest: 6000, fast: 3500, natural: 1800, relaxed: 1200 }[tier] || 3500;
-          let gestureOk = true;
-          try {
-            await cdp(tabId, "Input.synthesizeScrollGesture", {
-              x: coordinate[0],
-              y: coordinate[1],
-              xDistance: -deltaX,
-              yDistance: -deltaY,
-              speed: speedPxPerSec,
-              gestureSourceType: "mouse"
-            });
-          } catch (e) {
-            // Not available on this build — fall back to the plain single wheel
-            // event, which at least lands on the right element.
-            gestureOk = false;
-            console.warn("synthesizeScrollGesture unavailable:", e.message);
+          // So the wheel event stays exactly as it is, and what gets humanized
+          // is the cursor arriving at the scroll position and the beat before
+          // and after. A real mouse wheel is a chunky discrete device anyway;
+          // the smooth part of a scroll is the page's own animation, not the
+          // input. Correctness first: an agent asking to scroll one screen must
+          // land in the same place whether or not humanization is on.
+          const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
+          const from = cursorByTab.get(tabId);
+          if (from && (from.x !== coordinate[0] || from.y !== coordinate[1])) {
+            await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }), modifiers);
           }
-          if (!gestureOk) {
-            await sendMouseEvent(tabId, {
-              type: "mouseWheel", x: coordinate[0], y: coordinate[1], deltaX, deltaY, modifiers
-            }, { awaitAck: false });
-          }
+          await sendMouseEvent(tabId, {
+            type: "mouseWheel", x: coordinate[0], y: coordinate[1], deltaX, deltaY, modifiers
+          }, { awaitAck: false });
+          await sleep(humanize.thinkDelay(s, 0.5));
         } else {
         await sendMouseEvent(tabId, {
           type: "mouseWheel",
