@@ -105,6 +105,31 @@ function waitForNativeHost(maxMs) {
   });
 }
 
+// Wait for a usable browser link in WHICHEVER role this process ends up in.
+// A client whose primary just died may reconnect to a new primary, or promote
+// itself (becoming the primary and attaching the native host) — both settle
+// within ~2s. Polling covers both without threading waiters through the
+// client reconnect machinery.
+function waitForLink(maxMs) {
+  const up = () =>
+    mode === "primary"
+      ? nativeHostSocket && !nativeHostSocket.destroyed
+      : primarySocket && !primarySocket.destroyed;
+  if (up()) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const poll = setInterval(() => {
+      if (up()) {
+        clearInterval(poll);
+        resolve(true);
+      } else if (Date.now() - started >= maxMs) {
+        clearInterval(poll);
+        resolve(false);
+      }
+    }, 150);
+  });
+}
+
 // Primary mode: client (other MCP server process) connections multiplexed
 // to the single native host.
 const clientSockets = new Map();
@@ -366,9 +391,33 @@ function sendToExtension(tool, args) {
       );
     } else {
       if (!primarySocket || primarySocket.destroyed) {
-        clearTimeout(timer);
-        pendingRequests.delete(id);
-        reject(new Error("Lost connection to primary MCP server."));
+        // Client-path cold-start grace, mirroring the primary path above: a
+        // client calling inside the window after a primary died (reconnect,
+        // self-promotion, or another process winning the port all take up to
+        // ~2s) used to fail INSTANTLY while the primary's own calls in the
+        // same window succeeded. Poll for the link to come back — in either
+        // role, since this process may have promoted itself meanwhile — and
+        // only reject if it is still down after the grace.
+        waitForLink(5000).then((ok) => {
+          const entry = pendingRequests.get(id);
+          if (!entry || entry.resent) return;
+          if (ok) {
+            entry.resent = true;
+            const line = JSON.stringify({ id, type: "tool_request", tool, args }) + "\n";
+            if (mode === "primary" && nativeHostSocket && !nativeHostSocket.destroyed) {
+              nativeHostSocket.write(line);
+            } else if (primarySocket && !primarySocket.destroyed) {
+              primarySocket.write(line);
+            } else {
+              ok = false;
+            }
+          }
+          if (!ok) {
+            clearTimeout(entry.timer);
+            pendingRequests.delete(id);
+            reject(new Error("Lost connection to primary MCP server."));
+          }
+        });
         return;
       }
       primarySocket.write(

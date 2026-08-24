@@ -14,6 +14,26 @@ const NATIVE_HOST_NAME = "com.anthropic.open_claude_in_chrome";
 let nativePort = null;
 let tabGroupId = null;
 let tabGroupTabs = new Set();
+
+// --- Per-call timing forensics -------------------------------------------
+// Ring buffer of tool-call timings, persisted to chrome.storage.session so a
+// worker restart doesn't lose the window we were trying to catch. Exists to
+// pin down a field-observed failure mode: calls against certain tabs paying a
+// flat ~1s quantum each (payload-independent), in windows lasting minutes.
+// Read (and optionally clear) via the debug_timings tool.
+const bootAt = Date.now();
+const callTimings = [];
+let timingsDirty = 0;
+function recordTiming(entry) {
+  callTimings.push(entry);
+  if (callTimings.length > 600) callTimings.splice(0, callTimings.length - 600);
+  if (++timingsDirty >= 20) {
+    timingsDirty = 0;
+    try {
+      chrome.storage.session.set({ mcp_call_timings: callTimings.slice(), mcp_boot_at: bootAt });
+    } catch {}
+  }
+}
 const attachedTabs = new Map(); // tabId -> { enabledDomains: Set }
 const consoleMessages = new Map(); // tabId -> [{level, text, timestamp, url}]
 const networkRequests = new Map(); // tabId -> [{url, method, status, type, timestamp}]
@@ -318,10 +338,18 @@ async function isInGroup(tabId) {
 // window (even an unfocused one) still renders, which is the normal case here
 // since the MCP group lives in its own window.
 
+// Attach is not idempotent and not instant: two concurrent calls to a
+// not-yet-attached tab both pass the `has` check and the second
+// chrome.debugger.attach throws "Another debugger is already attached".
+// Reachable by any two consumers hitting a cold tab at the same time.
+// Concurrent callers share one in-flight attach.
+const attachingTabs = new Map();
 async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
-  await chrome.debugger.attach({ tabId }, "1.3");
-  attachedTabs.set(tabId, { enabledDomains: new Set() });
+  if (attachingTabs.has(tabId)) return attachingTabs.get(tabId);
+  const attach = (async () => {
+    await chrome.debugger.attach({ tabId }, "1.3");
+    attachedTabs.set(tabId, { enabledDomains: new Set() });
   // No device-metrics emulation here. Screenshots get CSS-pixel framing from an
   // explicit capture clip instead (see takeScreenshot), which is more direct and
   // touches nothing about the page — no re-layout, no resize handlers fired.
@@ -331,6 +359,14 @@ async function ensureAttached(tabId) {
   // Chrome does not re-layout a tab that is not the SELECTED tab in its window,
   // and since #28 we never select tabs. Removing the override did not change
   // that, and restoring it would not either.
+  //
+  // Builds before this one DID install an override (at the outer window size,
+  // which is larger than the viewport, so pages laid out for a size that did not
+  // exist). A tab attached by one of those builds still carries it, so clear it
+  // once here rather than inheriting a stale viewport from whatever ran before.
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Emulation.clearDeviceMetricsOverride", {});
+  } catch {}
   // Make the tab behave as focused/active for input purposes WITHOUT selecting
   // it. Since we stopped foregrounding tabs (#28), a driven tab is often not
   // the selected one, and Chromium throttles a hidden tab: synthesized
@@ -346,6 +382,17 @@ async function ensureAttached(tabId) {
     });
   } catch (e) {
     console.warn("setFocusEmulationEnabled unavailable:", e.message);
+  }
+  })();
+  attachingTabs.set(tabId, attach);
+  try {
+    await attach;
+  } catch (e) {
+    // Failed attach must not leave a half-registered tab behind.
+    attachedTabs.delete(tabId);
+    throw e;
+  } finally {
+    attachingTabs.delete(tabId);
   }
 }
 
@@ -1676,15 +1723,23 @@ const toolHandlers = {
 
   async javascript_tool(args) {
     const { text, tabId } = args;
+    const tIn = Date.now();
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
 
     await ensureAttached(tabId);
     try {
+      const tEval = Date.now();
       const result = await cdp(tabId, "Runtime.evaluate", {
         expression: text,
         returnByValue: true,
         awaitPromise: true,
       });
+      // preMs = group check + debugger attach; evalMs = the evaluate alone.
+      // The split is the whole point: it separates "the renderer serviced the
+      // task late" from every other stage of the pipe.
+      recordTiming({ t: tIn, tool: "javascript_tool", tab: tabId,
+                     preMs: tEval - tIn, evalMs: Date.now() - tEval,
+                     bytes: (text || "").length });
 
       if (result.exceptionDetails) {
         return {
@@ -1700,6 +1755,51 @@ const toolHandlers = {
     } catch (e) {
       return { content: [{ type: "text", text: `Error: ${e.message}` }] };
     }
+  },
+
+  // Read the per-call timing ring (live + storage.session backlog from before
+  // any worker restart) plus a live snapshot of every group tab's scheduling-
+  // relevant state. The snapshot is what turns a timing anomaly into a
+  // diagnosis: it says which tabs were active/audible/discarded/frozen and
+  // what state their windows were in while the quantum was being paid.
+  async debug_timings(args) {
+    const limit = Math.min(Number(args?.limit) || 200, 600);
+    let stored = [];
+    let storedBootAt = null;
+    try {
+      const got = await chrome.storage.session.get(["mcp_call_timings", "mcp_boot_at"]);
+      stored = got.mcp_call_timings || [];
+      storedBootAt = got.mcp_boot_at ?? null;
+    } catch {}
+    const seen = new Set(callTimings.map((e) => `${e.t}|${e.tool}`));
+    const merged = stored.filter((e) => !seen.has(`${e.t}|${e.tool}`)).concat(callTimings);
+    const tabs = [];
+    const winIds = new Set();
+    for (const id of tabGroupTabs) {
+      try {
+        const t = await chrome.tabs.get(id);
+        winIds.add(t.windowId);
+        tabs.push({ id, windowId: t.windowId, active: t.active, audible: !!t.audible,
+                    discarded: !!t.discarded, frozen: !!t.frozen,
+                    origin: (t.url || "").split("/").slice(0, 3).join("/") });
+      } catch {}
+    }
+    const windows = [];
+    for (const wid of winIds) {
+      try {
+        const w = await chrome.windows.get(wid);
+        windows.push({ id: wid, state: w.state, focused: w.focused });
+      } catch {}
+    }
+    if (args?.clear) {
+      callTimings.length = 0;
+      timingsDirty = 0;
+      try { chrome.storage.session.remove(["mcp_call_timings", "mcp_boot_at"]); } catch {}
+    }
+    return { content: [{ type: "text", text: JSON.stringify({
+      bootAt, storedBootAt, now: Date.now(), count: merged.length,
+      tabs, windows, timings: merged.slice(-limit),
+    }) }] };
   },
 
   async read_console_messages(args) {
@@ -2344,11 +2444,18 @@ async function handleToolRequest(id, tool, args) {
   const label = tool === "computer" ? `computer.${args && args.action}` : tool;
   dbg("tool", `${label} <-`, { tab: args && args.tabId });
   try {
+    const t0 = Date.now();
     const result = await handler(args);
     // Log the first line of what the caller will see: for a click that is the
     // landing report, which is the single most useful line in the stream.
     const summary = (result && result.content && result.content[0] && result.content[0].text) || "";
     dbg("tool", `${label} -> ${summary.split("\n")[0]}`, { tab: args && args.tabId, ms: Date.now() - t0 });
+    // Upstream's separate per-call timing buffer, kept so its debug_timings tool
+    // still reports. javascript_tool records its own richer entry (preMs/evalMs);
+    // debug_timings reading the buffer should not pollute it.
+    if (tool !== "javascript_tool" && tool !== "debug_timings") {
+      recordTiming({ t: t0, tool, tab: args?.tabId, ms: Date.now() - t0 });
+    }
     sendResponse(id, result);
   } catch (err) {
     dbg("tool", `${label} -> THREW`, { tab: args && args.tabId, ms: Date.now() - t0, err: String(err.message).slice(0, 160) });

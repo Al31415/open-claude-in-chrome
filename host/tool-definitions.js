@@ -1,4 +1,4 @@
-// The 21 open-claude-in-chrome tool definitions, extracted as data so both
+// The 25 open-claude-in-chrome tool definitions, extracted as data so both
 // the standard stdio MCP server (host/mcp-server.js) and the codemode +
 // hybrid servers can register them without duplicating the schemas.
 //
@@ -28,6 +28,15 @@ export const TOOLS = [
     description:
       "Creates a new empty tab in the MCP tab group. CRITICAL: You must get the context using tabs_context_mcp at least once before using other browser automation tools so you know what tabs exist.",
     paramShape: {}
+  },
+  {
+    name: "debug_timings",
+    description:
+      "Diagnostics: return the extension's per-tool-call timing ring buffer (javascript_tool entries carry preMs/evalMs splitting debugger-attach overhead from the Runtime.evaluate itself), plus a live snapshot of every MCP-group tab's scheduling-relevant state (active, audible, discarded, frozen, window state/focus). Survives service-worker restarts via storage.session. Use to localize latency anomalies: a large evalMs with a small preMs means the tab's renderer serviced the evaluation late.",
+    paramShape: {
+      limit: z.number().optional().describe("Max timing entries to return (default 200, cap 600)."),
+      clear: z.boolean().optional().describe("Clear the buffer after reading.")
+    }
   },
   {
     name: "tabs_close_mcp",
