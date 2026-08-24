@@ -321,16 +321,29 @@ async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
   await chrome.debugger.attach({ tabId }, "1.3");
   attachedTabs.set(tabId, { enabledDomains: new Set() });
-  // Force devicePixelRatio to 1 so screenshots match CSS coordinate space.
-  // Without this, Retina displays produce 2x screenshots and all coordinates are wrong.
-  const tab = await chrome.tabs.get(tabId);
-  const win = await chrome.windows.get(tab.windowId);
-  await chrome.debugger.sendCommand({ tabId }, "Emulation.setDeviceMetricsOverride", {
-    width: win.width,
-    height: win.height,
-    deviceScaleFactor: 1,
-    mobile: false,
-  });
+  // NO device-metrics override.
+  //
+  // There used to be one here, forcing deviceScaleFactor:1 at the size of the
+  // browser WINDOW, so that screenshots would come back in CSS pixels. It was
+  // wrong twice over. window.width/height are the OUTER window (including the
+  // browser's own chrome), so the page was told it had a viewport several dozen
+  // pixels larger than it really did, and laid itself out for a size that does
+  // not exist — every coordinate then describes a page nobody is looking at.
+  // And it did not even achieve its goal: devicePixelRatio still measured 1.5
+  // on a scaled display, and captures still came back 1.5x.
+  //
+  // A tab carried over from an older build may still have one installed, so
+  // clear it once on attach.
+  try {
+    await chrome.debugger.sendCommand({ tabId }, "Emulation.clearDeviceMetricsOverride", {});
+  } catch {}
+  //
+  // None of it is necessary. Input.dispatchMouseEvent takes CSS pixels and
+  // getBoundingClientRect returns CSS pixels, so the dispatch space and the DOM
+  // space already agree with no emulation at all. Screenshots are pinned to the
+  // same space directly, by capturing with an explicit clip at scale 1 (see
+  // takeScreenshot). Leaving the real viewport alone is what makes a click land
+  // where the caller meant regardless of window size or display scaling.
   // Make the tab behave as focused/active for input purposes WITHOUT selecting
   // it. Since we stopped foregrounding tabs (#28), a driven tab is often not
   // the selected one, and Chromium throttles a hidden tab: synthesized
@@ -554,10 +567,16 @@ async function sendContentMessage(tabId, message) {
 }
 
 // --- Resolve ref to coordinates ---
-async function resolveRefToCoordinates(tabId, ref) {
-  const resp = await sendContentMessage(tabId, { type: "getRefCoordinates", ref });
-  if (resp?.result) return [resp.result.x, resp.result.y];
-  return null;
+// Resolve a ref to the point to dispatch at, scrolling the element into view
+// first so the point is actually reachable. Returns the full record (not just
+// the pair) so callers can report interception.
+async function resolveRefToCoordinates(tabId, ref, opts = {}) {
+  const resp = await sendContentMessage(tabId, {
+    type: "getRefCoordinates",
+    ref,
+    scrollIntoView: opts.scrollIntoView !== false
+  });
+  return resp?.result || null;
 }
 
 // --- Screenshot helper ---
@@ -913,6 +932,45 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+
+// --- What a coordinate-based action actually landed on -----------------------
+//
+// A dispatch always "succeeds": the events go out whether or not anything is
+// there to receive them. So a perfect hit, a click into empty space, and a
+// click swallowed by a transparent overlay all used to return the identical
+// `Clicked at (x, y)` and nothing else — the caller could not tell them apart
+// without instrumenting the page itself. Every click-accuracy bug found so far
+// was invisible for exactly this reason.
+//
+// Resolving the point through the content script (isolated world) lets the
+// answer include the ref of whatever is there, in the same ref space that
+// read_page and find hand out. Best-effort throughout: this is an observability
+// aid, so a failure here must never fail the action it is describing.
+async function describeHit(tabId, x, y) {
+  let r;
+  try {
+    const resp = await sendContentMessage(tabId, { type: "describePoint", x, y });
+    r = resp && resp.result;
+  } catch {
+    return "";
+  }
+  if (!r) return "";
+
+  // Silent on success. A landing that hit something real needs no commentary,
+  // and adding it to every result would be noise on the overwhelmingly common
+  // path. Only the two cases a caller cannot otherwise detect get a word.
+  if (r.hit && !r.bare) return "";
+
+  const vp = r.viewport ? `${r.viewport[0]}x${r.viewport[1]}` : "the";
+  if (!r.hit) {
+    return r.outside
+      ? ` — WARNING: nothing received this. The point is outside the ${vp} viewport, so it landed on no element. Pass the element's ref instead of raw coordinates and it will be scrolled into view automatically.`
+      : ` — WARNING: no element at that point in the ${vp} viewport, so nothing received this.`;
+  }
+  // <html>/<body>: the input went to page background rather than any element.
+  return ` — WARNING: landed on <${r.hit.tag}> (page background), not on any element. Pass the element's ref instead of raw coordinates and it will be scrolled into view automatically.`;
+}
+
 // --- Tool handlers ---
 const toolHandlers = {
   async tabs_context_mcp(args) {
@@ -1084,14 +1142,42 @@ const toolHandlers = {
     if (!(await isInGroup(tabId))) return { content: [{ type: "text", text: `Tab ${tabId} is not in the MCP group.` }] };
 
     let coordinate = args.coordinate;
-    // Resolve ref to coordinates if provided
+    // Resolve ref to coordinates if provided. This scrolls the element into
+    // view first: coordinates are viewport-relative, so an element that is off
+    // screen has coordinates no dispatch can reach, and the click would land on
+    // the document root instead of the thing that was named.
+    let refCovering = null;
     if (args.ref && !coordinate) {
-      const coords = await resolveRefToCoordinates(tabId, args.ref);
-      if (!coords) return { content: [{ type: "text", text: `Could not resolve ref "${args.ref}" to coordinates.` }] };
-      coordinate = coords;
+      const res = await resolveRefToCoordinates(tabId, args.ref);
+      if (!res) return { content: [{ type: "text", text: `Could not resolve ref "${args.ref}" to coordinates. The page may have changed — re-run read_page or find for a fresh ref.` }] };
+      if (!res.reachable) {
+        return { content: [{ type: "text", text: `Could not bring ref "${args.ref}" into view — it is still outside the viewport after scrolling, so a click there would land on the page background rather than the element. It may be inside a container that needs scrolling separately, or hidden.` }] };
+      }
+      coordinate = [res.x, res.y];
+      refCovering = res.covering;
     }
 
     const modifiers = parseModifierString(args.modifiers);
+
+    // Probe BEFORE dispatching: the action itself can change what is under the
+    // point, so an after-the-fact test would describe the consequence rather
+    // than the target. For a drag the meaningful point is where the grab
+    // happens, not where it is released.
+    const HIT_PROBED = ["left_click", "right_click", "double_click", "triple_click", "hover", "scroll"];
+    let hitNote = "";
+    if (args.ref && coordinate) {
+      // Resolving the ref already scrolled it into view and hit-tested the
+      // result, so there is nothing left to check — only interception is worth
+      // mentioning, and it is deliberately not auto-corrected: a person
+      // clicking there would hit the same thing.
+      if (refCovering) {
+        hitNote = ` — NOTE: <${args.ref}> is covered at that point by ${refCovering}, which received this instead.`;
+      }
+    } else if (HIT_PROBED.includes(action) && coordinate) {
+      hitNote = await describeHit(tabId, coordinate[0], coordinate[1]);
+    } else if (action === "left_click_drag" && args.start_coordinate) {
+      hitNote = await describeHit(tabId, args.start_coordinate[0], args.start_coordinate[1]);
+    }
 
     switch (action) {
       case "screenshot": {
@@ -1126,7 +1212,7 @@ const toolHandlers = {
       case "left_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for left_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers });
-        return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
+        return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       // Hidden diagnostic (not in the tool schema): serially times every CDP
@@ -1155,19 +1241,19 @@ const toolHandlers = {
       case "right_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for right_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers });
-        return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
+        return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "double_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for double_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers });
-        return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
+        return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "triple_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for triple_click" }] };
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers });
-        return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})` }] };
+        return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "hover": {
@@ -1179,14 +1265,14 @@ const toolHandlers = {
           const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
           const from = cursorByTab.get(tabId) || { x: Math.max(0, coordinate[0] - 200), y: Math.max(0, coordinate[1] - 150) };
           await dispatchPlan(tabId, humanize.planHover(s, from, { x: coordinate[0], y: coordinate[1] }), modifiers);
-          return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
+          return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
         }
         await dispatchMouse(tabId, "mouseMoved", coordinate[0], coordinate[1], { modifiers });
         cursorByTab.set(tabId, { x: coordinate[0], y: coordinate[1] });
         // Let the page apply the hover state; Brave additionally needs a settle
         // window, Chrome doesn't.
         if (await isBrave()) await sleep(200);
-        return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})` }] };
+        return { content: [{ type: "text", text: `Hovered at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "type": {
@@ -1323,7 +1409,7 @@ const toolHandlers = {
         // block, so bound it and degrade to a text-only result rather than
         // stalling the whole scroll (and the agent's retries) to the 60s cap.
         const scrollContent = [
-          { type: "text", text: `Scrolled ${dir} by ${amount} ticks at (${coordinate[0]}, ${coordinate[1]})` },
+          { type: "text", text: `Scrolled ${dir} by ${amount} ticks at (${coordinate[0]}, ${coordinate[1]})${hitNote}` },
         ];
         try {
           const { base64 } = await withTimeout(takeScreenshot(tabId), 6000, "scroll screenshot");
@@ -1369,7 +1455,7 @@ const toolHandlers = {
           const s = human(effectiveConfig(tabId).humanize_speed, effectiveConfig(tabId).humanize_seed);
           const from = cursorByTab.get(tabId) || { x: sx, y: sy };
           await dispatchPlan(tabId, humanize.planDrag(s, from, { x: sx, y: sy }, { x: ex, y: ey }), modifiers);
-          return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };
+          return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})${hitNote}` }] };
         }
         await dispatchMouse(tabId, "mouseMoved", sx, sy, { modifiers });
         if (await isBrave()) await sleep(50);
@@ -1384,7 +1470,7 @@ const toolHandlers = {
           if (await isBrave()) await sleep(20);
         }
         await dispatchMouse(tabId, "mouseReleased", ex, ey, { button: "left", modifiers });
-        return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})` }] };
+        return { content: [{ type: "text", text: `Dragged from (${sx}, ${sy}) to (${ex}, ${ey})${hitNote}` }] };
       }
 
       case "zoom": {
@@ -1478,8 +1564,23 @@ const toolHandlers = {
     }
 
     let text = `Found ${results.length} element(s) matching "${query}":\n\n`;
+    let anyOff = false;
     for (const r of results) {
-      text += `[${r.ref}] ${r.role} "${r.name}" at (${r.coordinates[0]}, ${r.coordinates[1]})\n`;
+      text += `[${r.ref}] ${r.role} "${r.name}" at (${r.coordinates[0]}, ${r.coordinates[1]})`;
+      if (r.offViewport) {
+        anyOff = true;
+        text += ` [OFF-VIEWPORT]`;
+      }
+      text += `\n`;
+    }
+    if (anyOff) {
+      // Handing out coordinates that cannot be clicked is how a silent miss
+      // starts: the click dispatches fine and lands on the document root.
+      text +=
+        `\nNote: entries marked [OFF-VIEWPORT] are scrolled out of view. Clicking their ` +
+        `coordinates would land on the page background, not the element. Bring one into ` +
+        `view first (computer scroll_to with its ref, or scroll its container), then re-run ` +
+        `find to get fresh coordinates.\n`;
     }
 
     return { content: [{ type: "text", text }] };
@@ -1608,17 +1709,14 @@ const toolHandlers = {
     // macOS), so normalize the state first, then size it.
     try { await chrome.windows.update(tab.windowId, { state: "normal" }); } catch (e) {}
     await chrome.windows.update(tab.windowId, { width, height });
-    // The page's layout viewport and every screenshot are pinned by the CDP
-    // device-metrics override (set at attach to dpr=1 at the old size). Without
-    // repointing it, the OS window moves but window.innerWidth, the rendered
-    // viewport, and captures never change — which is why resize looked like a
-    // no-op. Re-apply the override at the requested size.
-    await cdp(tabId, "Emulation.setDeviceMetricsOverride", {
-      width,
-      height,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
+    // No override to re-point: with the real viewport left alone, resizing the
+    // OS window resizes the page's viewport by itself, which is both simpler
+    // and the behaviour a user would expect. Clear any override a previous
+    // build may have installed on this tab, so a long-lived session does not
+    // stay pinned to a stale emulated size.
+    try {
+      await cdp(tabId, "Emulation.clearDeviceMetricsOverride", {});
+    } catch {}
     return { content: [{ type: "text", text: `Resized window to ${width}x${height}` }] };
   },
 

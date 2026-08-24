@@ -329,11 +329,21 @@
       if (searchable.includes(q)) {
         const ref = getOrAssignRef(el);
         const rect = el.getBoundingClientRect();
+        const cx = Math.round(rect.x + rect.width / 2);
+        const cy = Math.round(rect.y + rect.height / 2);
         results.push({
           ref,
           role: role || tag,
           name: name || text.substring(0, 80),
-          coordinates: [Math.round(rect.x + rect.width / 2), Math.round(rect.y + rect.height / 2)],
+          coordinates: [cx, cy],
+          // A match can be scrolled out of view — inside a horizontally
+          // overflowing strip, below the fold, anywhere. Its coordinates are
+          // still returned (they are correct, just not currently reachable),
+          // but clicking them would land on the document root instead of the
+          // element. Flag it here so the caller scrolls first rather than
+          // discovering the miss afterwards.
+          offViewport:
+            cx < 0 || cy < 0 || cx >= window.innerWidth || cy >= window.innerHeight,
         });
       }
     }
@@ -413,15 +423,114 @@
     return { success: true, value: target.value };
   }
 
+  // --- What is actually at a point ---
+  // A dispatched click lands on whatever occupies its coordinates, which is not
+  // necessarily what the caller aimed at: the target may have scrolled out of
+  // view, or something transparent may be sitting on top of it. The dispatch
+  // succeeds either way, so without this a hit and a miss are indistinguishable
+  // from the tool result. Runs in the isolated world, so it can also report the
+  // ref of the element it found — the same ref space read_page/find hand out.
+  function describePoint(x, y) {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const outside = x < 0 || y < 0 || x >= vw || y >= vh;
+    const el = outside ? null : document.elementFromPoint(x, y);
+    if (!el) return { hit: null, outside, viewport: [vw, vh] };
+
+    // Shadow DOM: elementFromPoint stops at the host, so walk into the shadow
+    // tree to name the node that will really receive the event.
+    let node = el;
+    for (let depth = 0; depth < 4 && node.shadowRoot; depth++) {
+      const inner = node.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === node) break;
+      node = inner;
+    }
+
+    const tag = node.tagName.toLowerCase();
+    const attrs = {};
+    for (const a of ["id", "name", "type", "role", "data-testid", "data-test", "aria-label"]) {
+      const v = node.getAttribute && node.getAttribute(a);
+      if (v) attrs[a] = v.length > 40 ? v.slice(0, 40) + "…" : v;
+    }
+    const cls =
+      typeof node.className === "string" && node.className.trim()
+        ? node.className.trim().split(/\s+/).slice(0, 2).join(".")
+        : "";
+    const text = (node.textContent || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    // Only report a ref the element already has; assigning a new one here would
+    // grow the ref map on every click.
+    const existing = reverseMap.get(node);
+    const ref = existing && elementMap[existing]?.deref() === node ? existing : null;
+    return {
+      hit: { tag, attrs, cls, text, ref },
+      // <html>/<body> means the point is over page background — nothing
+      // interactive there, which is almost always a miss worth flagging.
+      bare: tag === "html" || tag === "body",
+      viewport: [vw, vh]
+    };
+  }
+
   // --- Get element coordinates for ref ---
-  function getRefCoordinates(refId) {
+  function getRefCoordinates(refId, opts = {}) {
     const el = resolveRef(refId);
     if (!el) return null;
+
+    // Bring the element into view before reading its position.
+    //
+    // Coordinates are viewport-relative, so an element scrolled out of view has
+    // coordinates that cannot be clicked at all: the dispatch lands on the
+    // document root instead. That is not a reporting problem, it is a targeting
+    // one — the caller named an element, and the element is reachable, it just
+    // is not on screen yet. Scrolling first is what a person does, and what
+    // Playwright/Puppeteer do before every click, so the click lands on what
+    // was actually asked for.
+    //
+    // block/inline "center" (rather than the default "start") keeps the element
+    // clear of sticky headers and footers, which are a common way for a
+    // technically-in-viewport element to still be covered.
+    if (opts.scrollIntoView !== false) {
+      let r = el.getBoundingClientRect();
+      const off =
+        r.left < 0 || r.top < 0 || r.right > window.innerWidth || r.bottom > window.innerHeight;
+      if (off) {
+        try {
+          el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+        } catch {
+          el.scrollIntoView(true);
+        }
+      }
+    }
+
     const rect = el.getBoundingClientRect();
+    const x = Math.round(rect.x + rect.width / 2);
+    const y = Math.round(rect.y + rect.height / 2);
+    // Report what is actually at the resulting point, so the caller learns when
+    // something else (an overlay, a sticky bar) will receive the click. That
+    // case is NOT auto-corrected: a person clicking there would hit the overlay
+    // too, so silently clicking through it would be the unfaithful choice.
+    let covering = null;
+    if (x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight) {
+      const at = document.elementFromPoint(x, y);
+      if (at && at !== el && !el.contains(at) && !at.contains(el)) {
+        covering = describeBrief(at);
+      }
+    }
     return {
-      x: Math.round(rect.x + rect.width / 2),
-      y: Math.round(rect.y + rect.height / 2),
+      x,
+      y,
+      reachable: x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight,
+      covering,
     };
+  }
+
+  function describeBrief(el) {
+    const id = el.id ? `#${el.id}` : "";
+    const cls =
+      typeof el.className === "string" && el.className.trim()
+        ? "." + el.className.trim().split(/\s+/)[0]
+        : "";
+    const t = (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
+    return `<${el.tagName.toLowerCase()}${id}${cls}>${t ? ` "${t}"` : ""}`;
   }
 
   // --- Message handler ---
@@ -450,8 +559,13 @@
       return true;
     }
 
+    if (msg.type === "describePoint") {
+      sendResponse({ result: describePoint(msg.x, msg.y) });
+      return true;
+    }
+
     if (msg.type === "getRefCoordinates") {
-      const result = getRefCoordinates(msg.ref);
+      const result = getRefCoordinates(msg.ref, { scrollIntoView: msg.scrollIntoView });
       sendResponse({ result });
       return true;
     }
@@ -493,6 +607,7 @@
 
   // Expose globally for executeScript fallback
   window.__unblockedChrome = {
+    describePoint,
     generateAccessibilityTree,
     getPageText,
     findElements,

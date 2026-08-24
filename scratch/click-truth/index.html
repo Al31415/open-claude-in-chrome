@@ -1,0 +1,108 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>click truth</title>
+<style>
+  body { font: 13px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 12px 16px; background: #f7f7f5; color: #1c1e22; }
+  h1 { font-size: 15px; margin: 0 0 2px; }
+  .sub { color: #5b5f66; font-size: 12px; margin: 0 0 12px; }
+  .strip { display: flex; gap: 10px; overflow-x: auto; border: 1px solid #e2e2dd; background: #fff;
+           border-radius: 8px; padding: 10px; white-space: nowrap; }
+  .strip button { flex: 0 0 auto; width: 170px; height: 44px; font: inherit; font-weight: 600;
+                  border: 1px solid #c9ccd1; border-radius: 7px; background: #eef2fb; cursor: pointer; }
+  .zone { position: relative; margin-top: 12px; height: 90px; border: 1px solid #e2e2dd;
+          border-radius: 8px; background: #fff; }
+  #buried { position: absolute; left: 20px; top: 22px; width: 150px; height: 44px; font: inherit;
+            font-weight: 600; background: #e4f4ee; border: 1px solid #0e8a5f; border-radius: 7px; }
+  /* transparent overlay sitting exactly on top of #buried */
+  #overlay { position: absolute; left: 0; top: 0; right: 0; bottom: 0; background: rgba(0,0,0,0); }
+  #scrollbox { margin-top: 12px; height: 80px; width: 280px; overflow-y: scroll; border: 1px solid #e2e2dd;
+               border-radius: 7px; background: #fff; }
+  #scrollbox div { height: 36px; padding: 4px 10px; border-bottom: 1px solid #f0f0ec; }
+  pre { background: #15171b; color: #e8eaee; padding: 9px; border-radius: 7px; font-size: 11px;
+        max-height: 260px; overflow: auto; margin: 10px 0 0; }
+  .k { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: #5b5f66; }
+</style>
+
+<h1>click truth</h1>
+<p class="sub">Records the <em>true target</em> of every pointer event, so a hit and a miss can be told apart. <span class="k">window.__truth()</span> returns the log; <span class="k">window.__reset()</span> clears it.</p>
+
+<!-- Case A/B: a strip far wider than the viewport, so far-right buttons are off-viewport -->
+<div class="strip" id="strip"></div>
+
+<!-- Case C: a target completely covered by a transparent overlay -->
+<div class="zone">
+  <button id="buried">buried button</button>
+  <div id="overlay"></div>
+</div>
+
+<!-- Case D: a nested scroller, to see which element a wheel actually reaches -->
+<div id="scrollbox"></div>
+
+<pre id="log"></pre>
+
+<script>
+const truth = { events: [], titleChanges: [], wheels: [] };
+window.__truth = () => JSON.stringify({
+  events: truth.events, wheels: truth.wheels,
+  title: document.title,
+  viewport: [innerWidth, innerHeight],
+  stripScrollLeft: document.getElementById('strip').scrollLeft,
+  boxTop: document.getElementById('scrollbox').scrollTop
+});
+window.__reset = () => { truth.events.length = 0; truth.wheels.length = 0;
+  document.title = 'untouched'; document.getElementById('log').textContent = '';
+  document.getElementById('strip').scrollLeft = 0; document.getElementById('scrollbox').scrollTop = 0;
+  return 'reset'; };
+
+const logEl = document.getElementById('log');
+function say(s) { logEl.textContent += s + "\n"; logEl.scrollTop = logEl.scrollHeight; }
+
+function describe(el) {
+  if (!el) return "null";
+  const id = el.id ? "#" + el.id : "";
+  const cls = el.className && typeof el.className === "string" && el.className.trim()
+    ? "." + el.className.trim().split(/\s+/)[0] : "";
+  return `<${el.tagName.toLowerCase()}${id}${cls}>`;
+}
+
+// Capture phase on document: records the REAL target of every pointer event,
+// regardless of which handler ends up consuming it.
+for (const type of ["mousedown", "mouseup", "click"]) {
+  document.addEventListener(type, (e) => {
+    truth.events.push({ type, target: describe(e.target), x: e.clientX, y: e.clientY, trusted: e.isTrusted });
+    say(`${type.padEnd(9)} @(${e.clientX},${e.clientY}) -> ${describe(e.target)}`);
+  }, true);
+}
+document.addEventListener("wheel", (e) => {
+  truth.wheels.push({ target: describe(e.target), dy: e.deltaY, x: e.clientX, y: e.clientY });
+  say(`wheel     @(${e.clientX},${e.clientY}) dy=${e.deltaY} -> ${describe(e.target)}`);
+}, true);
+
+// 20 wide buttons: content far exceeds any normal viewport
+const strip = document.getElementById('strip');
+for (let i = 1; i <= 20; i++) {
+  const b = document.createElement('button');
+  b.id = 'chip' + i; b.textContent = 'Button ' + i;
+  b.addEventListener('click', () => { document.title = 'HIT:chip' + i; say('   handler fired: chip' + i); });
+  strip.appendChild(b);
+}
+document.getElementById('buried').addEventListener('click', () => {
+  document.title = 'HIT:buried'; say('   handler fired: buried');
+});
+document.getElementById('overlay').addEventListener('click', () => {
+  document.title = 'HIT:overlay'; say('   handler fired: OVERLAY (intercepted)');
+});
+const sb = document.getElementById('scrollbox');
+for (let i = 0; i < 30; i++) { const d = document.createElement('div'); d.textContent = 'row ' + (i+1); sb.appendChild(d); }
+document.title = 'untouched';
+
+// Ground truth for the harness: where things actually are.
+window.__where = () => {
+  const r = (id) => { const b = document.getElementById(id).getBoundingClientRect();
+    return { x: Math.round(b.x + b.width/2), y: Math.round(b.y + b.height/2),
+             inViewport: b.x >= 0 && b.y >= 0 && b.right <= innerWidth && b.bottom <= innerHeight }; };
+  return JSON.stringify({ chip2: r('chip2'), chip17: r('chip17'), buried: r('buried'),
+    scrollbox: r('scrollbox'), viewport: [innerWidth, innerHeight],
+    stripScrollWidth: document.getElementById('strip').scrollWidth });
+};
+</script>
