@@ -1840,10 +1840,29 @@ const toolHandlers = {
         ]
       };
     }
-    await chrome.windows.update(tab.windowId, { width, height });
+    // Record the window's own bounds either side of the call. The viewport
+    // alone cannot distinguish "the window never moved" from "the window moved
+    // but the page did not follow", and those have completely different causes.
+    const before = { state: win.state, w: win.width, h: win.height, left: win.left, top: win.top };
+    let updateErr = null;
+    try {
+      await chrome.windows.update(tab.windowId, { width, height, state: "normal" });
+    } catch (e) {
+      updateErr = String(e && e.message).slice(0, 160);
+    }
     // Give the window manager a moment to apply the size before measuring it,
     // for the same reason as above.
     await sleep(150);
+    let after = null;
+    try {
+      const w2 = await chrome.windows.get(tab.windowId);
+      after = { state: w2.state, w: w2.width, h: w2.height, left: w2.left, top: w2.top };
+    } catch {}
+    dbg(
+      "tool",
+      `resize_window bounds ${before.w}x${before.h}(${before.state}) -> ${after ? `${after.w}x${after.h}(${after.state})` : "unknown"} requested ${width}x${height}${updateErr ? ` ERR ${updateErr}` : ""}`,
+      { tab: tabId }
+    );
     // Nothing to re-point: only the device pixel ratio is overridden, never the
     // size, so the page's viewport follows the OS window on its own. (Clearing
     // the override here would undo the ratio pin and send screenshots back to
@@ -1866,9 +1885,10 @@ const toolHandlers = {
     if (!actual) {
       return { content: [{ type: "text", text: `Requested window resize to ${width}x${height}.` }] };
     }
+    const moved = after && (after.w !== before.w || after.h !== before.h);
     const note =
       Math.abs(actual[0] - width) > 40 || Math.abs(actual[1] - height) > 40
-        ? ` — NOTE: the viewport is ${actual[0]}x${actual[1]}, so the window manager did not apply the requested size (a maximized, full-screen or tiled window will refuse it; un-maximize it first).`
+        ? ` — NOTE: requested ${width}x${height} but the window went ${before.w}x${before.h} -> ${after ? `${after.w}x${after.h}` : "unknown"} (state ${after ? after.state : "?"}), so the window manager ${moved ? "clamped" : "ignored"} the request. A maximized, full-screen or tiled window refuses resizes; on macOS, Stage Manager and split view also do, while still reporting state "normal".${updateErr ? ` The update call also errored: ${updateErr}` : ""}`
         : "";
     return {
       content: [
