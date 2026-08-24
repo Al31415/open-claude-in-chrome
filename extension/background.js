@@ -607,16 +607,11 @@ async function takeScreenshot(tabId) {
   await ensureAttached(tabId);
 
   // Capture at EXACTLY CSS-pixel dimensions, because the agent reads click
-  // coordinates off this image and clicks are dispatched in CSS pixels.
+  // coordinates off this image and clicks are dispatched in CSS pixels. On a
+  // 1.5x display an uncorrected capture of a 1008x632 viewport comes back
+  // 1512x948, so an agent told to "click what you see" aims 1.5x off and
+  // misses everything.
   //
-  // ensureAttached sets deviceScaleFactor:1 intending to guarantee that, but
-  // it does not always take (measured on a 1.5x display: devicePixelRatio still
-  // reported 1.5, the viewport was 1008x632, and the captured JPEG came back
-  // 1512x948 — while the tool's own result text said 1008x632). An agent told
-  // to "look at the screenshot and click what you see" then aims 1.5x off and
-  // misses everything. So pin the scale explicitly on the capture itself, via
-  // a clip covering the viewport with scale:1, instead of trusting the
-  // emulation override to have applied.
   // The capture is rasterised at the display's pixel ratio, so on a scaled
   // display the image comes back larger than the CSS viewport and every
   // coordinate read off it is wrong by that factor. Undo it in the capture
