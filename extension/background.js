@@ -321,29 +321,34 @@ async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
   await chrome.debugger.attach({ tabId }, "1.3");
   attachedTabs.set(tabId, { enabledDomains: new Set() });
-  // NO device-metrics override.
+  // Force deviceScaleFactor to 1 — and ONLY that.
   //
-  // There used to be one here, forcing deviceScaleFactor:1 at the size of the
-  // browser WINDOW, so that screenshots would come back in CSS pixels. It was
-  // wrong twice over. window.width/height are the OUTER window (including the
-  // browser's own chrome), so the page was told it had a viewport several dozen
-  // pixels larger than it really did, and laid itself out for a size that does
-  // not exist — every coordinate then describes a page nobody is looking at.
-  // And it did not even achieve its goal: devicePixelRatio still measured 1.5
-  // on a scaled display, and captures still came back 1.5x.
+  // Screenshots are rendered at the display's pixel ratio, so on a scaled
+  // display the captured image comes back larger than the CSS viewport (2016px
+  // wide for a 1008px viewport, measured). An agent reading click coordinates
+  // off that image aims 2x off and misses everything. Capturing with an
+  // explicit clip does NOT fix it: clip.scale scales the captured region, while
+  // the output is still rasterised at the device ratio.
   //
-  // A tab carried over from an older build may still have one installed, so
-  // clear it once on attach.
+  // The width/height arguments are deliberately 0, which CDP reads as "do not
+  // override the size". The previous version passed the browser WINDOW's
+  // width/height here, which forced the page to lay itself out for a viewport
+  // dozens of pixels larger than it actually had (window dimensions include the
+  // browser's own chrome) — so every coordinate described a page nobody was
+  // looking at, and resize_window had to keep re-pointing the override to keep
+  // the illusion consistent. Overriding the ratio alone leaves the real
+  // viewport untouched, which is what makes DOM coordinates, dispatch
+  // coordinates and screenshot pixels all describe the same space.
   try {
-    await chrome.debugger.sendCommand({ tabId }, "Emulation.clearDeviceMetricsOverride", {});
-  } catch {}
-  //
-  // None of it is necessary. Input.dispatchMouseEvent takes CSS pixels and
-  // getBoundingClientRect returns CSS pixels, so the dispatch space and the DOM
-  // space already agree with no emulation at all. Screenshots are pinned to the
-  // same space directly, by capturing with an explicit clip at scale 1 (see
-  // takeScreenshot). Leaving the real viewport alone is what makes a click land
-  // where the caller meant regardless of window size or display scaling.
+    await chrome.debugger.sendCommand({ tabId }, "Emulation.setDeviceMetricsOverride", {
+      width: 0,
+      height: 0,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+  } catch (e) {
+    console.warn("setDeviceMetricsOverride (scale only) failed:", e.message);
+  }
   // Make the tab behave as focused/active for input purposes WITHOUT selecting
   // it. Since we stopped foregrounding tabs (#28), a driven tab is often not
   // the selected one, and Chromium throttles a hidden tab: synthesized
@@ -1709,15 +1714,40 @@ const toolHandlers = {
     // macOS), so normalize the state first, then size it.
     try { await chrome.windows.update(tab.windowId, { state: "normal" }); } catch (e) {}
     await chrome.windows.update(tab.windowId, { width, height });
-    // No override to re-point: with the real viewport left alone, resizing the
-    // OS window resizes the page's viewport by itself, which is both simpler
-    // and the behaviour a user would expect. Clear any override a previous
-    // build may have installed on this tab, so a long-lived session does not
-    // stay pinned to a stale emulated size.
+    // Nothing to re-point: only the device pixel ratio is overridden, never the
+    // size, so the page's viewport follows the OS window on its own. (Clearing
+    // the override here would undo the ratio pin and send screenshots back to
+    // being device-scaled.)
+    //
+    // Report the viewport that actually resulted rather than echoing the
+    // request. A window manager can refuse or clamp a resize — full-screen or
+    // tiled windows commonly do — and the old code could not tell, because the
+    // size override made the page report the requested size whether or not the
+    // window had moved. Saying what really happened is the difference between
+    // a resize and the appearance of one.
+    let actual = null;
     try {
-      await cdp(tabId, "Emulation.clearDeviceMetricsOverride", {});
+      const vp = await cdp(tabId, "Runtime.evaluate", {
+        expression: "JSON.stringify([innerWidth, innerHeight])",
+        returnByValue: true
+      });
+      actual = JSON.parse(vp.result.value);
     } catch {}
-    return { content: [{ type: "text", text: `Resized window to ${width}x${height}` }] };
+    if (!actual) {
+      return { content: [{ type: "text", text: `Requested window resize to ${width}x${height}.` }] };
+    }
+    const note =
+      Math.abs(actual[0] - width) > 40 || Math.abs(actual[1] - height) > 40
+        ? ` — NOTE: the viewport is ${actual[0]}x${actual[1]}, so the window manager did not apply the requested size (a maximized, full-screen or tiled window will refuse it; un-maximize it first).`
+        : "";
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Resized window to ${width}x${height}; viewport is now ${actual[0]}x${actual[1]}.${note}`
+        }
+      ]
+    };
   },
 
   async upload_image(args) {
