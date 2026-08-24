@@ -322,40 +322,21 @@ async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
   await chrome.debugger.attach({ tabId }, "1.3");
   attachedTabs.set(tabId, { enabledDomains: new Set() });
-  // Pin the CAPTURE scale to 1 — and only the capture.
+  // NO device-metrics emulation. Measured: setDeviceMetricsOverride FREEZES the
+  // viewport, even when width/height are 0 (which the protocol describes as
+  // "do not override the size"). With it installed, the OS window resized
+  // exactly as asked — bounds went 1200x800 -> 1000x700 -> 760x600 — while the
+  // page stayed pinned at 800x479 the whole time. That is why resize_window
+  // appeared not to work, and why several "different window sizes" were really
+  // the same viewport over and over.
   //
-  // Screenshots are rendered at the display's pixel ratio, so on a scaled
-  // display the captured image comes back larger than the CSS viewport (2016px
-  // wide for a 1008px viewport, measured). An agent reading click coordinates
-  // off that image aims 2x off and misses everything. Capturing with an
-  // explicit clip does NOT fix it: clip.scale scales the captured region, while
-  // the output is still rasterised at the device ratio.
+  // The original code re-applied the override after every resize, which was
+  // compensating for this same freeze rather than fixing it.
   //
-  // Measured effect: captures come back at CSS-pixel dimensions (a 600x412
-  // viewport yields a 600x412 image, where it was 2x that before), while the
-  // page still reports its real devicePixelRatio. That is the better outcome
-  // of the two — a page that adapts to pixel ratio keeps rendering the way it
-  // normally would, and only the coordinate space we depend on is pinned.
-  //
-  // The width/height arguments are deliberately 0, which CDP reads as "do not
-  // override the size". The previous version passed the browser WINDOW's
-  // width/height here, which forced the page to lay itself out for a viewport
-  // dozens of pixels larger than it actually had (window dimensions include the
-  // browser's own chrome) — so every coordinate described a page nobody was
-  // looking at, and resize_window had to keep re-pointing the override to keep
-  // the illusion consistent. Overriding the ratio alone leaves the real
-  // viewport untouched, which is what makes DOM coordinates, dispatch
-  // coordinates and screenshot pixels all describe the same space.
-  try {
-    await chrome.debugger.sendCommand({ tabId }, "Emulation.setDeviceMetricsOverride", {
-      width: 0,
-      height: 0,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-  } catch (e) {
-    console.warn("setDeviceMetricsOverride (scale only) failed:", e.message);
-  }
+  // Screenshots are kept in CSS pixels without emulation, by capturing with an
+  // explicit clip scaled by 1/devicePixelRatio (see takeScreenshot). That
+  // touches nothing about the page: no re-layout, no frozen viewport, no
+  // resize handlers fired.
   // Make the tab behave as focused/active for input purposes WITHOUT selecting
   // it. Since we stopped foregrounding tabs (#28), a driven tab is often not
   // the selected one, and Chromium throttles a hidden tab: synthesized
@@ -636,14 +617,22 @@ async function takeScreenshot(tabId) {
   // misses everything. So pin the scale explicitly on the capture itself, via
   // a clip covering the viewport with scale:1, instead of trusting the
   // emulation override to have applied.
+  // The capture is rasterised at the display's pixel ratio, so on a scaled
+  // display the image comes back larger than the CSS viewport and every
+  // coordinate read off it is wrong by that factor. Undo it in the capture
+  // itself: clip to the viewport and scale by 1/ratio, which yields an image
+  // whose pixels ARE CSS pixels. Emulation would also achieve this, but at the
+  // cost of freezing the viewport (see ensureAttached).
   let clip = null;
   try {
     const vp = await cdp(tabId, "Runtime.evaluate", {
-      expression: "JSON.stringify([innerWidth, innerHeight])",
+      expression: "JSON.stringify([innerWidth, innerHeight, devicePixelRatio])",
       returnByValue: true
     });
-    const [vw, vh] = JSON.parse(vp.result.value);
-    if (vw > 0 && vh > 0) clip = { x: 0, y: 0, width: vw, height: vh, scale: 1 };
+    const [vw, vh, dpr] = JSON.parse(vp.result.value);
+    if (vw > 0 && vh > 0) {
+      clip = { x: 0, y: 0, width: vw, height: vh, scale: 1 / (dpr > 0 ? dpr : 1) };
+    }
   } catch {}
 
   const shot = async (quality) => {
