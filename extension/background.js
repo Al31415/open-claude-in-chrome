@@ -1804,10 +1804,46 @@ const toolHandlers = {
 
     await ensureAttached(tabId);
     const tab = await chrome.tabs.get(tabId);
-    // A maximized/fullscreen window silently ignores width/height (notably on
-    // macOS), so normalize the state first, then size it.
-    try { await chrome.windows.update(tab.windowId, { state: "normal" }); } catch (e) {}
+
+    // A maximized or full-screen window ignores width/height, so it has to be
+    // returned to "normal" FIRST — and, crucially, the state change has to have
+    // landed before the resize is issued. Sending both in the same tick was the
+    // bug: chrome.windows.update resolves when the request is accepted, not
+    // when the window manager has applied it, so on macOS the resize raced the
+    // un-maximize and was dropped every time. Four different requested sizes
+    // all left the viewport untouched at 600x375.
+    //
+    // Exiting macOS full-screen is an animation, which is why this waits rather
+    // than simply retrying once.
+    let win = await chrome.windows.get(tab.windowId);
+    if (win.state !== "normal") {
+      try {
+        await chrome.windows.update(tab.windowId, { state: "normal" });
+      } catch {}
+      for (let i = 0; i < 20; i++) {
+        await sleep(100);
+        try {
+          win = await chrome.windows.get(tab.windowId);
+        } catch {
+          break;
+        }
+        if (win.state === "normal") break;
+      }
+    }
+    if (win.state !== "normal") {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Could not resize: the window is ${win.state} and would not return to a normal state, so the window manager will ignore any size. Exit full screen and try again.`
+          }
+        ]
+      };
+    }
     await chrome.windows.update(tab.windowId, { width, height });
+    // Give the window manager a moment to apply the size before measuring it,
+    // for the same reason as above.
+    await sleep(150);
     // Nothing to re-point: only the device pixel ratio is overridden, never the
     // size, so the page's viewport follows the OS window on its own. (Clearing
     // the override here would undo the ratio pin and send screenshots back to
