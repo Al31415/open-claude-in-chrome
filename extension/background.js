@@ -1854,6 +1854,44 @@ const toolHandlers = {
       const w2 = await chrome.windows.get(tab.windowId);
       after = { state: w2.state, w: w2.width, h: w2.height, left: w2.left, top: w2.top };
     } catch {}
+
+    // A window resize and the page's re-layout are not the same event: the
+    // window can report its new bounds while the renderer has not yet reflowed.
+    // A fixed sleep here read the pre-resize viewport often enough to make
+    // correct resizes report themselves as failures. Wait for the viewport to
+    // actually move instead, then let it settle, and cap the wait so a resize
+    // that genuinely changes nothing still returns promptly.
+    const readViewport = async () => {
+      try {
+        const v = await cdp(tabId, "Runtime.evaluate", {
+          expression: "JSON.stringify([innerWidth, innerHeight])",
+          returnByValue: true
+        });
+        return JSON.parse(v.result.value);
+      } catch {
+        return null;
+      }
+    };
+    const changedFromBefore = (v) =>
+      v && vpBefore && (v[0] !== vpBefore[0] || v[1] !== vpBefore[1]);
+    const settleDeadline = 900;
+    let waited = 0;
+    let last = await readViewport();
+    while (waited < settleDeadline) {
+      if (changedFromBefore(last)) {
+        // Moved. One more read so a mid-reflow value is not what we report.
+        await sleep(60);
+        waited += 60;
+        const settled = await readViewport();
+        if (settled) last = settled;
+        break;
+      }
+      await sleep(60);
+      waited += 60;
+      const next = await readViewport();
+      if (next) last = next;
+    }
+    const settledViewport = last;
     dbg(
       "tool",
       `resize_window bounds ${before.w}x${before.h}(${before.state}) -> ${after ? `${after.w}x${after.h}(${after.state})` : "unknown"} requested ${width}x${height}${updateErr ? ` ERR ${updateErr}` : ""}`,
@@ -1864,14 +1902,7 @@ const toolHandlers = {
     // ~100px shorter than the window it lives in because the browser's own chrome
     // takes that space. Comparing the two directly made every successful resize
     // look like a failure.
-    let actual = null;
-    try {
-      const vp = await cdp(tabId, "Runtime.evaluate", {
-        expression: "JSON.stringify([innerWidth, innerHeight])",
-        returnByValue: true
-      });
-      actual = JSON.parse(vp.result.value);
-    } catch {}
+    const actual = settledViewport;
 
     const windowTook = after && Math.abs(after.w - width) <= 8 && Math.abs(after.h - height) <= 8;
     const windowMoved = after && (after.w !== before.w || after.h !== before.h);
@@ -1895,9 +1926,9 @@ const toolHandlers = {
       // not reported as a fault.
       note =
         ` — NOTE: the window resized to ${after.w}x${after.h} as requested, but the page's viewport ` +
-        `stayed ${actual[0]}x${actual[1]}. The viewport is pinned by something other than the window ` +
-        `manager (a device-metrics emulation override does exactly this), so anything measured at ` +
-        `this "new size" is really still the old one.`;
+        `stayed ${actual[0]}x${actual[1]} after waiting ${settleDeadline}ms for it to reflow. Something ` +
+        `is holding the viewport fixed independently of the window, so anything measured at this ` +
+        `"new size" is really still the old one.`;
     }
     return {
       content: [
