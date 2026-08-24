@@ -475,6 +475,38 @@ export const TOOLS = [
     }
   },
   {
+    name: "debug",
+    description:
+      "Read what this extension actually did: one timestamped stream of tool calls, CDP commands with their durations, dispatched input with its coordinates, what each click landed on, and native-host connection changes. Use it to verify an action had the effect you intended, or to find where time went — rather than inferring either from a tool result that looks the same whether it worked or not. Reports its own limits on every read: how many events were dropped, and how far back the buffer reaches, so a short log is never mistaken for a quiet system.",
+    paramShape: {
+      limit: z
+        .number()
+        .optional()
+        .describe("How many of the most recent matching events to show (default 100, max 1000)."),
+      kind: z
+        .enum(["tool", "cdp", "input", "hit", "port"])
+        .optional()
+        .describe(
+          'Only this kind of event. "tool" = calls in and out with their result line; "cdp" = protocol commands and durations; "input" = dispatched mouse/cursor events with coordinates; "hit" = what a click landed on; "port" = native host connect/disconnect.'
+        ),
+      filter: z
+        .string()
+        .optional()
+        .describe(
+          'Free-form match over each event, as a regex (falls back to plain substring if it will not compile). Examples: "mousePressed", "WARNING", "left_click|type".'
+        ),
+      tabId: z.number().optional().describe("Only events for this tab."),
+      since_ms: z
+        .number()
+        .optional()
+        .describe("Only events from the last N milliseconds — e.g. 5000 to see just what the last action did."),
+      clear: z
+        .boolean()
+        .optional()
+        .describe("Empty the buffer after reading, so the next read starts clean around one action.")
+    }
+  },
+  {
     name: "get_config",
     description:
       "Read the browser-automation settings this extension honors. Returns the default config (applies to every tab), any per-tab overrides, and a catalog of recognized settings with what each one does — that catalog is the source of truth, so read it before setting anything. Pass tabId to also see the config that actually applies to that tab (per-tab override merged over the default).",

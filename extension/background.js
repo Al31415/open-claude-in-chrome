@@ -146,6 +146,7 @@ function connectNativeHost() {
 
     nativePort.onDisconnect.addListener(() => {
       const err = chrome.runtime.lastError;
+      dbg("port", `native host disconnected`, { err: err && String(err.message).slice(0, 120) });
       nativePort = null;
       stopHeartbeat();
       // Retry quickly. Reconnect latency dominates per-call wall-clock when
@@ -390,11 +391,36 @@ function withTimeout(promise, ms, label) {
 
 async function cdp(tabId, method, params = {}) {
   await ensureAttached(tabId);
-  return withTimeout(
-    chrome.debugger.sendCommand({ tabId }, method, params),
-    CDP_TIMEOUT_MS,
-    `CDP ${method}`
-  );
+  const t0 = Date.now();
+  try {
+    const out = await withTimeout(
+      chrome.debugger.sendCommand({ tabId }, method, params),
+      CDP_TIMEOUT_MS,
+      `CDP ${method}`
+    );
+    dbg("cdp", `${method}${cdpDetail(method, params)}`, { tab: tabId, ms: Date.now() - t0 });
+    return out;
+  } catch (e) {
+    dbg("cdp", `${method}${cdpDetail(method, params)}`, {
+      tab: tabId, ms: Date.now() - t0, err: String(e && e.message).slice(0, 120)
+    });
+    throw e;
+  }
+}
+
+// A short, useful summary of a CDP call: the parameters that matter for
+// diagnosis (where an input went, which key, how far a scroll) without dumping
+// entire payloads such as screenshot bytes into the log.
+function cdpDetail(method, p) {
+  if (!p) return "";
+  if (method === "Input.dispatchMouseEvent")
+    return ` ${p.type}(${p.x},${p.y})${p.deltaY ? ` dy=${p.deltaY}` : ""}${p.button && p.type !== "mouseMoved" ? ` ${p.button}` : ""}`;
+  if (method === "Input.dispatchKeyEvent")
+    return ` ${p.type} ${JSON.stringify(p.key || "")}${p.autoRepeat ? " repeat" : ""}`;
+  if (method === "Input.insertText") return ` ${JSON.stringify(String(p.text).slice(0, 20))}`;
+  if (method === "Runtime.evaluate") return ` ${JSON.stringify(String(p.expression || "").slice(0, 60))}`;
+  if (method === "Input.synthesizeScrollGesture") return ` (${p.x},${p.y}) y=${p.yDistance}`;
+  return "";
 }
 
 // Clean up when tab is closed
@@ -683,6 +709,9 @@ const CHROME_INPUT_ACK_WAIT_MS = 50; // Chrome: acks instantly, a short window s
 
 async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } = {}) {
   await ensureAttached(tabId);
+  const t0 = Date.now();
+  dbg("input", `${params.type}(${params.x},${params.y})${params.deltaY ? ` dy=${params.deltaY}` : ""}${noAck ? " noack" : awaitAck ? "" : " raced"}`,
+      { tab: tabId, x: params.x, y: params.y });
   const send = withTimeout(
     chrome.debugger.sendCommand({ tabId }, "Input.dispatchMouseEvent", params),
     CDP_TIMEOUT_MS,
@@ -976,6 +1005,52 @@ async function describeHit(tabId, x, y) {
   return ` — WARNING: landed on <${r.hit.tag}> (page background), not on any element. Pass the element's ref instead of raw coordinates and it will be scrolled into view automatically.`;
 }
 
+
+// --- Debug recorder ----------------------------------------------------------
+//
+// One flat, timestamped event stream covering everything this extension does:
+// tool calls, CDP commands and their durations, dispatched input with its
+// coordinates, what each click actually landed on, and native-host connection
+// changes. Read it with the `debug` tool.
+//
+// It exists so a failure can be SEEN rather than reconstructed. Several bugs
+// here (clicks landing on nothing, screenshots in the wrong coordinate space,
+// a resize the window manager refused) were invisible because success and
+// failure produced identical output, and each took hours of forensics.
+//
+// Two rules, because a feedback channel that lies is worse than none:
+//
+//   1. Recording must never affect what it records. Every entry point is
+//      wrapped so a fault in here can never fail, slow, or alter a real
+//      action. Recording is a plain array push.
+//   2. Absence of a record must never look like absence of an event. The
+//      buffer is bounded and lives in a service worker that MV3 evicts, so
+//      both limits are reported explicitly on every read: how many events were
+//      dropped, and how far back the buffer actually reaches. A reader is told
+//      what is NOT in here, not left to assume the silence is meaningful.
+const DEBUG_MAX = 1000;
+const debugLog = [];
+let debugDropped = 0;
+const debugBootedAt = Date.now();
+
+function dbg(kind, detail, extra) {
+  try {
+    const e = { t: Date.now(), kind, detail: String(detail).slice(0, 300) };
+    if (extra && typeof extra === "object") {
+      for (const k of ["tab", "ms", "x", "y", "err"]) {
+        if (extra[k] !== undefined && extra[k] !== null) e[k] = extra[k];
+      }
+    }
+    debugLog.push(e);
+    if (debugLog.length > DEBUG_MAX) {
+      debugDropped += debugLog.length - DEBUG_MAX;
+      debugLog.splice(0, debugLog.length - DEBUG_MAX);
+    }
+  } catch {
+    // A recorder that throws would take down the action it is observing.
+  }
+}
+
 // --- Tool handlers ---
 const toolHandlers = {
   async tabs_context_mcp(args) {
@@ -1177,9 +1252,13 @@ const toolHandlers = {
       // clicking there would hit the same thing.
       if (refCovering) {
         hitNote = ` — NOTE: <${args.ref}> is covered at that point by ${refCovering}, which received this instead.`;
+        dbg("hit", `${args.ref} @(${coordinate[0]},${coordinate[1]}) COVERED BY ${refCovering}`, { tab: tabId });
+      } else {
+        dbg("hit", `${args.ref} @(${coordinate[0]},${coordinate[1]}) reachable`, { tab: tabId });
       }
     } else if (HIT_PROBED.includes(action) && coordinate) {
       hitNote = await describeHit(tabId, coordinate[0], coordinate[1]);
+      dbg("hit", `@(${coordinate[0]},${coordinate[1]}) ${hitNote ? hitNote.replace(/^ — /, "") : "landed on an element"}`, { tab: tabId });
     } else if (action === "left_click_drag" && args.start_coordinate) {
       hitNote = await describeHit(tabId, args.start_coordinate[0], args.start_coordinate[1]);
     }
@@ -1943,6 +2022,92 @@ const toolHandlers = {
     return { content: [{ type: "text", text }] };
   },
 
+  async debug(args) {
+    const limit = Math.min(Math.max(Number(args?.limit) || 100, 1), DEBUG_MAX);
+    const kind = args?.kind;
+    const filter = args?.filter;
+    const tabId = args?.tabId;
+    const sinceMs = Number(args?.since_ms) || 0;
+    const now = Date.now();
+
+    let re = null;
+    let reErr = "";
+    if (filter) {
+      try {
+        re = new RegExp(filter, "i");
+      } catch (e) {
+        // Fall back to substring rather than failing the call: a debug tool
+        // that errors on its own input is useless exactly when it is needed.
+        reErr = ` (filter "${filter}" is not valid regex — matched as plain text)`;
+      }
+    }
+
+    let rows = debugLog;
+    const total = rows.length;
+    if (sinceMs) rows = rows.filter((e) => now - e.t <= sinceMs);
+    if (kind) rows = rows.filter((e) => e.kind === kind);
+    if (tabId !== undefined && tabId !== null) rows = rows.filter((e) => e.tab === tabId);
+    if (filter) {
+      rows = rows.filter((e) => {
+        const hay = `${e.kind} ${e.detail} ${e.err || ""}`;
+        return re ? re.test(hay) : hay.toLowerCase().includes(String(filter).toLowerCase());
+      });
+    }
+    const matched = rows.length;
+    rows = rows.slice(-limit);
+
+    // Everything the reader needs to know about what is NOT here. Silence in a
+    // debug stream must never be mistaken for silence in the system.
+    const ageS = Math.round((now - debugBootedAt) / 1000);
+    const head = [
+      `OCIC debug — ${rows.length} shown of ${matched} matching, ${total} in buffer${reErr}`,
+      `Buffer keeps the most recent ${DEBUG_MAX} events${debugDropped ? `; ${debugDropped} older event(s) have been DROPPED` : ""}.`,
+      `Recording started ${ageS}s ago (service worker start). NOTHING before that is in here — MV3 evicts the worker, which clears the buffer, so an empty or short log may mean the worker restarted rather than that nothing happened.`
+    ];
+    if (!rows.length) {
+      head.push("", "No events matched. If you expected some, check the window above before concluding the action did not occur.");
+      return { content: [{ type: "text", text: head.join("\n") }] };
+    }
+
+    const t0 = rows[0].t;
+    const lines = rows.map((e) => {
+      const rel = `+${String(e.t - t0).padStart(6)}ms`;
+      const ms = e.ms !== undefined ? ` (${e.ms}ms)` : "";
+      const tab = e.tab !== undefined ? ` tab=${e.tab}` : "";
+      const err = e.err ? `  ERR: ${e.err}` : "";
+      return `${rel}  ${e.kind.padEnd(5)} ${e.detail}${ms}${tab}${err}`;
+    });
+
+    // Timing roll-up: the question after "what happened" is nearly always
+    // "what was slow", and it is cheap to answer here.
+    const byKind = {};
+    for (const e of rows) {
+      if (typeof e.ms !== "number") continue;
+      const k = e.detail.split(" ")[0];
+      (byKind[k] = byKind[k] || []).push(e.ms);
+    }
+    const slow = Object.entries(byKind)
+      .map(([k, v]) => ({ k, n: v.length, total: v.reduce((a, b) => a + b, 0), max: Math.max(...v) }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 6)
+      .map((r) => `  ${r.k} x${r.n}: ${r.total}ms total, ${r.max}ms slowest`);
+
+    const span = rows[rows.length - 1].t - t0;
+    const out = [
+      ...head,
+      `Window shown spans ${span}ms.`,
+      "",
+      ...lines
+    ];
+    if (slow.length) out.push("", "Slowest by total time:", ...slow);
+    if (args?.clear) {
+      debugLog.length = 0;
+      debugDropped = 0;
+      out.push("", "Buffer cleared.");
+    }
+    return { content: [{ type: "text", text: out.join("\n") }] };
+  },
+
   async get_config(args) {
     await configHydrated;
     const tabId = args?.tabId;
@@ -2065,10 +2230,18 @@ async function handleToolRequest(id, tool, args) {
     return;
   }
 
+  const t0 = Date.now();
+  const label = tool === "computer" ? `computer.${args && args.action}` : tool;
+  dbg("tool", `${label} <-`, { tab: args && args.tabId });
   try {
     const result = await handler(args);
+    // Log the first line of what the caller will see: for a click that is the
+    // landing report, which is the single most useful line in the stream.
+    const summary = (result && result.content && result.content[0] && result.content[0].text) || "";
+    dbg("tool", `${label} -> ${summary.split("\n")[0]}`, { tab: args && args.tabId, ms: Date.now() - t0 });
     sendResponse(id, result);
   } catch (err) {
+    dbg("tool", `${label} -> THREW`, { tab: args && args.tabId, ms: Date.now() - t0, err: String(err.message).slice(0, 160) });
     sendError(id, `${tool} failed: ${err.message}`);
   }
 }
