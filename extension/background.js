@@ -1828,6 +1828,18 @@ const toolHandlers = {
     // alone cannot distinguish "the window never moved" from "the window moved
     // but the page did not follow", and those have completely different causes.
     const before = { state: win.state, w: win.width, h: win.height, left: win.left, top: win.top };
+    // The viewport before the call, so a window that moves while the page stays
+    // put is detectable. That combination is not a window-manager behaviour at
+    // all — it means something on our side has pinned the viewport — and it is
+    // exactly what emulation used to do here.
+    let vpBefore = null;
+    try {
+      const v0 = await cdp(tabId, "Runtime.evaluate", {
+        expression: "JSON.stringify([innerWidth, innerHeight])",
+        returnByValue: true
+      });
+      vpBefore = JSON.parse(v0.result.value);
+    } catch {}
     let updateErr = null;
     try {
       await chrome.windows.update(tab.windowId, { width, height, state: "normal" });
@@ -1847,17 +1859,11 @@ const toolHandlers = {
       `resize_window bounds ${before.w}x${before.h}(${before.state}) -> ${after ? `${after.w}x${after.h}(${after.state})` : "unknown"} requested ${width}x${height}${updateErr ? ` ERR ${updateErr}` : ""}`,
       { tab: tabId }
     );
-    // Nothing to re-point: only the device pixel ratio is overridden, never the
-    // size, so the page's viewport follows the OS window on its own. (Clearing
-    // the override here would undo the ratio pin and send screenshots back to
-    // being device-scaled.)
-    //
-    // Report the viewport that actually resulted rather than echoing the
-    // request. A window manager can refuse or clamp a resize — full-screen or
-    // tiled windows commonly do — and the old code could not tell, because the
-    // size override made the page report the requested size whether or not the
-    // window had moved. Saying what really happened is the difference between
-    // a resize and the appearance of one.
+    // Report what actually happened rather than echoing the request, and judge
+    // the window against the WINDOW bounds — not the viewport, which is legitimately
+    // ~100px shorter than the window it lives in because the browser's own chrome
+    // takes that space. Comparing the two directly made every successful resize
+    // look like a failure.
     let actual = null;
     try {
       const vp = await cdp(tabId, "Runtime.evaluate", {
@@ -1866,19 +1872,39 @@ const toolHandlers = {
       });
       actual = JSON.parse(vp.result.value);
     } catch {}
-    if (!actual) {
-      return { content: [{ type: "text", text: `Requested window resize to ${width}x${height}.` }] };
+
+    const windowTook = after && Math.abs(after.w - width) <= 8 && Math.abs(after.h - height) <= 8;
+    const windowMoved = after && (after.w !== before.w || after.h !== before.h);
+    const pageFollowed =
+      !vpBefore || !actual || actual[0] !== vpBefore[0] || actual[1] !== vpBefore[1];
+
+    let note = "";
+    if (!windowTook) {
+      // The window itself did not reach the requested size: a window-manager call.
+      note =
+        ` — NOTE: requested ${width}x${height} but the window went ${before.w}x${before.h} -> ` +
+        `${after ? `${after.w}x${after.h}` : "unknown"} (state ${after ? after.state : "?"}), so the ` +
+        `window manager ${windowMoved ? "clamped" : "ignored"} the request. Full-screen, tiled, and ` +
+        `snapped windows refuse resizes; on macOS, Stage Manager and split view do too, while still ` +
+        `reporting state "normal".${updateErr ? ` The update call also errored: ${updateErr}` : ""}`;
+    } else if (windowMoved && !pageFollowed) {
+      // The window took the size but the page did not re-layout. Not the window
+      // manager's doing — something is holding the viewport fixed on our side.
+      // Gated on windowMoved so that asking for the size the window already has
+      // (a legitimate no-op, where the viewport correctly does not change) is
+      // not reported as a fault.
+      note =
+        ` — NOTE: the window resized to ${after.w}x${after.h} as requested, but the page's viewport ` +
+        `stayed ${actual[0]}x${actual[1]}. The viewport is pinned by something other than the window ` +
+        `manager (a device-metrics emulation override does exactly this), so anything measured at ` +
+        `this "new size" is really still the old one.`;
     }
-    const moved = after && (after.w !== before.w || after.h !== before.h);
-    const note =
-      Math.abs(actual[0] - width) > 40 || Math.abs(actual[1] - height) > 40
-        ? ` — NOTE: requested ${width}x${height} but the window went ${before.w}x${before.h} -> ${after ? `${after.w}x${after.h}` : "unknown"} (state ${after ? after.state : "?"}), so the window manager ${moved ? "clamped" : "ignored"} the request. A maximized, full-screen or tiled window refuses resizes; on macOS, Stage Manager and split view also do, while still reporting state "normal".${updateErr ? ` The update call also errored: ${updateErr}` : ""}`
-        : "";
     return {
       content: [
         {
           type: "text",
-          text: `Resized window to ${width}x${height}; viewport is now ${actual[0]}x${actual[1]}.${note}`
+          text: `Resized window to ${width}x${height}${after ? ` (window is ${after.w}x${after.h})` : ""}; ` +
+            `viewport is now ${actual ? `${actual[0]}x${actual[1]}` : "unknown"}.${note}`
         }
       ]
     };
