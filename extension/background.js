@@ -322,21 +322,15 @@ async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
   await chrome.debugger.attach({ tabId }, "1.3");
   attachedTabs.set(tabId, { enabledDomains: new Set() });
-  // NO device-metrics emulation. Measured: setDeviceMetricsOverride FREEZES the
-  // viewport, even when width/height are 0 (which the protocol describes as
-  // "do not override the size"). With it installed, the OS window resized
-  // exactly as asked — bounds went 1200x800 -> 1000x700 -> 760x600 — while the
-  // page stayed pinned at 800x479 the whole time. That is why resize_window
-  // appeared not to work, and why several "different window sizes" were really
-  // the same viewport over and over.
+  // No device-metrics emulation here. Screenshots get CSS-pixel framing from an
+  // explicit capture clip instead (see takeScreenshot), which is more direct and
+  // touches nothing about the page — no re-layout, no resize handlers fired.
   //
-  // The original code re-applied the override after every resize, which was
-  // compensating for this same freeze rather than fixing it.
-  //
-  // Screenshots are kept in CSS pixels without emulation, by capturing with an
-  // explicit clip scaled by 1/devicePixelRatio (see takeScreenshot). That
-  // touches nothing about the page: no re-layout, no frozen viewport, no
-  // resize handlers fired.
+  // An earlier version of this comment claimed the override was what froze the
+  // viewport against resize_window. That was wrong. The real cause is below:
+  // Chrome does not re-layout a tab that is not the SELECTED tab in its window,
+  // and since #28 we never select tabs. Removing the override did not change
+  // that, and restoring it would not either.
   // Make the tab behave as focused/active for input purposes WITHOUT selecting
   // it. Since we stopped foregrounding tabs (#28), a driven tab is often not
   // the selected one, and Chromium throttles a hidden tab: synthesized
@@ -1926,9 +1920,13 @@ const toolHandlers = {
       // not reported as a fault.
       note =
         ` — NOTE: the window resized to ${after.w}x${after.h} as requested, but the page's viewport ` +
-        `stayed ${actual[0]}x${actual[1]} after waiting ${settleDeadline}ms for it to reflow. Something ` +
-        `is holding the viewport fixed independently of the window, so anything measured at this ` +
-        `"new size" is really still the old one.`;
+        `stayed ${actual[0]}x${actual[1]} after waiting ${settleDeadline}ms for it to reflow. Chrome ` +
+        `does not re-layout a tab that is not the SELECTED tab in its window, and this tab is not ` +
+        `selected, so the page keeps the size it had when it was last displayed. Call set_tab_focus ` +
+        `on this tab first if the new size actually needs to reach the page. Note that the page ` +
+        `cannot tell you this itself: focus emulation makes it report visibilityState "visible" and ` +
+        `hasFocus() true either way. Until then, anything measured at this "new size" is really ` +
+        `still the old one.`;
     }
     return {
       content: [
