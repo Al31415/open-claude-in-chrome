@@ -322,7 +322,7 @@ async function ensureAttached(tabId) {
   if (attachedTabs.has(tabId)) return;
   await chrome.debugger.attach({ tabId }, "1.3");
   attachedTabs.set(tabId, { enabledDomains: new Set() });
-  // Force deviceScaleFactor to 1 — and ONLY that.
+  // Pin the CAPTURE scale to 1 — and only the capture.
   //
   // Screenshots are rendered at the display's pixel ratio, so on a scaled
   // display the captured image comes back larger than the CSS viewport (2016px
@@ -330,6 +330,12 @@ async function ensureAttached(tabId) {
   // off that image aims 2x off and misses everything. Capturing with an
   // explicit clip does NOT fix it: clip.scale scales the captured region, while
   // the output is still rasterised at the device ratio.
+  //
+  // Measured effect: captures come back at CSS-pixel dimensions (a 600x412
+  // viewport yields a 600x412 image, where it was 2x that before), while the
+  // page still reports its real devicePixelRatio. That is the better outcome
+  // of the two — a page that adapts to pixel ratio keeps rendering the way it
+  // normally would, and only the coordinate space we depend on is pinned.
   //
   // The width/height arguments are deliberately 0, which CDP reads as "do not
   // override the size". The previous version passed the browser WINDOW's
@@ -1235,6 +1241,15 @@ const toolHandlers = {
       }
       coordinate = [res.x, res.y];
       refCovering = res.covering;
+      if (res.scrolledFrom) {
+        // The coordinates just changed underneath the caller. Recording it is
+        // what stops a reader of the log concluding no scroll took place.
+        dbg(
+          "hit",
+          `${args.ref} scrolled into view: (${res.scrolledFrom[0]},${res.scrolledFrom[1]}) -> (${res.x},${res.y})`,
+          { tab: tabId }
+        );
+      }
     }
 
     const modifiers = parseModifierString(args.modifiers);

@@ -488,11 +488,16 @@
     // block/inline "center" (rather than the default "start") keeps the element
     // clear of sticky headers and footers, which are a common way for a
     // technically-in-viewport element to still be covered.
+    let scrolledFrom = null;
     if (opts.scrollIntoView !== false) {
-      let r = el.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
       const off =
         r.left < 0 || r.top < 0 || r.right > window.innerWidth || r.bottom > window.innerHeight;
       if (off) {
+        // Remember where it was, so the caller can record that a scroll
+        // happened. A move this large silently changing the coordinates is
+        // exactly the kind of thing a debug log has to show.
+        scrolledFrom = [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)];
         try {
           el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
         } catch {
@@ -520,6 +525,7 @@
       y,
       reachable: x >= 0 && y >= 0 && x < window.innerWidth && y < window.innerHeight,
       covering,
+      scrolledFrom,
     };
   }
 
