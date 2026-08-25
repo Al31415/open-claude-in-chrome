@@ -381,6 +381,10 @@ async function ensureAttached(tabId) {
       enabled: true,
     });
   } catch (e) {
+    // Without this, input to an unselected tab can be dropped outright, so a
+    // silent failure here turns into clicks that vanish with no other trace.
+    dbg("cdp", "Emulation.setFocusEmulationEnabled FAILED — input to unselected tabs may be dropped",
+        { tab: tabId, err: String(e && e.message).slice(0, 120) });
     console.warn("setFocusEmulationEnabled unavailable:", e.message);
   }
   })();
@@ -684,6 +688,18 @@ async function takeScreenshot(tabId) {
     base64 = await shot(28);
   }
 
+  // The coordinate space this image is in — the single fact that made screenshot
+  // bugs invisible for so long. The response reports dimensions; it says nothing
+  // about the pixel ratio the capture was rasterised at, the clip scale used to
+  // undo it, or whether a quality retry fired. An agent reading coordinates off
+  // this image is trusting every one of those.
+  dbg(
+    "cdp",
+    `screenshot ${clip ? `${clip.width}x${clip.height} CSS px, dpr ${Math.round((1 / clip.scale) * 100) / 100}, clip scale ${Math.round(clip.scale * 1000) / 1000}` : "NO CLIP — image is in device pixels, not CSS pixels"}` +
+      ` -> ${Math.round((base64.length * 3) / 4 / 1024)}KB${base64.length > 350000 ? " (after quality retry)" : ""}`,
+    { tab: tabId }
+  );
+
   const imageId = `screenshot_${Date.now()}`;
   screenshotStore.set(imageId, base64);
   // Keep only last 10 screenshots (less memory pressure)
@@ -758,7 +774,14 @@ async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } 
     // regardless, and the plan carries its own pacing in sleep steps), so
     // waiting only buys latency. Press/release still use the awaited path,
     // since those ARE dropped if issued while an earlier command is un-acked.
-    send.catch((e) => console.warn("Input.dispatchMouseEvent (noAck):", e.message));
+    // A failure arriving after we stopped waiting is precisely the case where
+    // the stream would otherwise show a clean dispatch for an event that never
+    // landed. Record it against the coordinates it was meant for.
+    send.catch((e) => {
+      dbg("input", `${params.type}(${params.x},${params.y}) FAILED AFTER SEND (noack) — nothing received it`,
+          { tab: tabId, x: params.x, y: params.y, err: String(e && e.message).slice(0, 120) });
+      console.warn("Input.dispatchMouseEvent (noAck):", e.message);
+    });
     return;
   }
   if (awaitAck) {
@@ -770,7 +793,11 @@ async function sendMouseEvent(tabId, params, { awaitAck = true, noAck = false } 
   // Brave needs the full window; Chrome acks instantly, so a short one suffices.
   const ackWaitMs = (await isBrave()) ? INPUT_ACK_WAIT_MS : CHROME_INPUT_ACK_WAIT_MS;
   await Promise.race([
-    send.catch((e) => console.warn("Input.dispatchMouseEvent late ack/failure:", e.message)),
+    send.catch((e) => {
+      dbg("input", `${params.type}(${params.x},${params.y}) LATE FAILURE — dispatch did not take`,
+          { tab: tabId, x: params.x, y: params.y, err: String(e && e.message).slice(0, 120) });
+      console.warn("Input.dispatchMouseEvent late ack/failure:", e.message);
+    }),
     sleep(ackWaitMs),
   ]);
 }
@@ -1011,28 +1038,70 @@ function sleep(ms) {
 // answer include the ref of whatever is there, in the same ref space that
 // read_page and find hand out. Best-effort throughout: this is an observability
 // aid, so a failure here must never fail the action it is describing.
-async function describeHit(tabId, x, y) {
-  let r;
+// Probe what is at a point. Split into three pieces on purpose: the probe, the
+// full descriptor, and the (usually empty) response note.
+//
+// The tool response is deliberately silent when a click lands cleanly, because
+// annotating every successful click would be noise on the overwhelmingly common
+// path. But "omitted from the response" must not mean "discarded": the debug
+// stream is where everything the response leaves out is supposed to end up, so
+// the descriptor is computed once and always recorded, whatever the response
+// chooses to say.
+async function probeHit(tabId, x, y) {
   try {
     const resp = await sendContentMessage(tabId, { type: "describePoint", x, y });
-    r = resp && resp.result;
-  } catch {
-    return "";
+    const r = resp && resp.result;
+    return r ? { ok: true, r } : { ok: false, err: "content script returned no result" };
+  } catch (e) {
+    return { ok: false, err: String(e && e.message).slice(0, 120) };
   }
-  if (!r) return "";
+}
 
-  // Silent on success. A landing that hit something real needs no commentary,
-  // and adding it to every result would be noise on the overwhelmingly common
-  // path. Only the two cases a caller cannot otherwise detect get a word.
+// Compact one-line descriptor for the debug stream. Always produced — including
+// on the success path, where the response itself says nothing.
+function formatHit(p) {
+  if (!p.ok) {
+    // A failed probe is NOT a clean hit. Saying so explicitly is the whole
+    // point: silence here would be indistinguishable from success.
+    return `PROBE FAILED (${p.err}) — nothing is known about what is at this point`;
+  }
+  const r = p.r;
+  const vp = r.viewport ? r.viewport.join("x") : "?";
+  if (!r.hit) {
+    return r.outside
+      ? `NOTHING — point lies outside the ${vp} viewport`
+      : `NOTHING — no element at that point in the ${vp} viewport`;
+  }
+  const h = r.hit;
+  const a = h.attrs || {};
+  const id = a.id ? `#${a.id}` : "";
+  const cls = h.cls ? `.${h.cls}` : "";
+  const extra = [];
+  if (a["data-testid"] || a["data-test"]) extra.push(`testid=${a["data-testid"] || a["data-test"]}`);
+  if (a.role) extra.push(`role=${a.role}`);
+  if (a["aria-label"]) extra.push(`aria="${a["aria-label"]}"`);
+  if (a.name) extra.push(`name=${a.name}`);
+  if (a.type) extra.push(`type=${a.type}`);
+  if (h.ref) extra.push(h.ref);
+  const text = h.text ? ` "${h.text}"` : "";
+  return `<${h.tag}${id}${cls}>${text}${extra.length ? " " + extra.join(" ") : ""}` +
+    `${r.bare ? " (page background)" : ""} in ${vp} viewport`;
+}
+
+// The response note. Silent on success; only the two cases a caller cannot
+// otherwise detect get a word. A failed probe stays silent here too — it is a
+// fault in the instrument, not a finding about the click, and it is recorded in
+// the debug stream instead of being guessed at in the result.
+function hitNote_(p) {
+  if (!p.ok) return "";
+  const r = p.r;
   if (r.hit && !r.bare) return "";
-
   const vp = r.viewport ? `${r.viewport[0]}x${r.viewport[1]}` : "the";
   if (!r.hit) {
     return r.outside
       ? ` — WARNING: nothing received this. The point is outside the ${vp} viewport, so it landed on no element. Pass the element's ref instead of raw coordinates and it will be scrolled into view automatically.`
       : ` — WARNING: no element at that point in the ${vp} viewport, so nothing received this.`;
   }
-  // <html>/<body>: the input went to page background rather than any element.
   return ` — WARNING: landed on <${r.hit.tag}> (page background), not on any element. Pass the element's ref instead of raw coordinates and it will be scrolled into view automatically.`;
 }
 
@@ -1063,6 +1132,47 @@ const DEBUG_MAX = 1000;
 const debugLog = [];
 let debugDropped = 0;
 const debugBootedAt = Date.now();
+
+// What the caller actually ASKED for. A tool response never echoes its own
+// arguments, so without this the stream cannot answer the first question you
+// ask of any log entry: what was this call, exactly?
+function argSummary(args) {
+  if (!args || typeof args !== "object") return "(no args)";
+  const parts = [];
+  for (const [k, v] of Object.entries(args)) {
+    if (k === "tabId") continue; // already carried on the entry itself
+    let out;
+    if (typeof v === "string") {
+      out = v.length > 60 ? JSON.stringify(v.slice(0, 60)) + `…+${v.length - 60}ch` : JSON.stringify(v);
+    } else if (Array.isArray(v)) {
+      out = `[${v.slice(0, 4).join(",")}${v.length > 4 ? ",…" : ""}]`;
+    } else if (v && typeof v === "object") {
+      out = "{…}";
+    } else {
+      out = String(v);
+    }
+    parts.push(`${k}=${out}`);
+  }
+  return parts.length ? parts.join(" ") : "(no args)";
+}
+
+// What the response LEAVES OUT about itself: how much came back, and the size
+// of any image. Deliberately NOT the response text — the caller already has
+// that, and echoing it here would make the stream a duplicate rather than a
+// record of what was omitted.
+function resultShape(result) {
+  const items = (result && result.content) || [];
+  let chars = 0, images = 0, b64 = 0;
+  for (const it of items) {
+    if (!it) continue;
+    if (it.type === "text" && typeof it.text === "string") chars += it.text.length;
+    else if (it.type === "image" && typeof it.data === "string") { images++; b64 += it.data.length; }
+  }
+  const bits = [];
+  if (chars) bits.push(`${chars}ch`);
+  if (images) bits.push(`${images} image ${Math.round((b64 * 3) / 4 / 1024)}KB`);
+  return bits.length ? bits.join(" + ") : "empty";
+}
 
 function dbg(kind, detail, extra) {
   try {
@@ -1297,10 +1407,14 @@ const toolHandlers = {
         dbg("hit", `${args.ref} @(${coordinate[0]},${coordinate[1]}) reachable`, { tab: tabId });
       }
     } else if (HIT_PROBED.includes(action) && coordinate) {
-      hitNote = await describeHit(tabId, coordinate[0], coordinate[1]);
-      dbg("hit", `@(${coordinate[0]},${coordinate[1]}) ${hitNote ? hitNote.replace(/^ — /, "") : "landed on an element"}`, { tab: tabId });
+      const probe = await probeHit(tabId, coordinate[0], coordinate[1]);
+      hitNote = hitNote_(probe);
+      dbg("hit", `@(${coordinate[0]},${coordinate[1]}) ${formatHit(probe)}`, { tab: tabId, x: coordinate[0], y: coordinate[1] });
     } else if (action === "left_click_drag" && args.start_coordinate) {
-      hitNote = await describeHit(tabId, args.start_coordinate[0], args.start_coordinate[1]);
+      const probe = await probeHit(tabId, args.start_coordinate[0], args.start_coordinate[1]);
+      hitNote = hitNote_(probe);
+      dbg("hit", `drag start @(${args.start_coordinate[0]},${args.start_coordinate[1]}) ${formatHit(probe)}`,
+          { tab: tabId, x: args.start_coordinate[0], y: args.start_coordinate[1] });
     }
 
     switch (action) {
@@ -2447,14 +2561,15 @@ async function handleToolRequest(id, tool, args) {
 
   const t0 = Date.now();
   const label = tool === "computer" ? `computer.${args && args.action}` : tool;
-  dbg("tool", `${label} <-`, { tab: args && args.tabId });
+  dbg("tool", `${label} <- ${argSummary(args)}`, { tab: args && args.tabId });
   try {
     const t0 = Date.now();
     const result = await handler(args);
-    // Log the first line of what the caller will see: for a click that is the
-    // landing report, which is the single most useful line in the stream.
-    const summary = (result && result.content && result.content[0] && result.content[0].text) || "";
-    dbg("tool", `${label} -> ${summary.split("\n")[0]}`, { tab: args && args.tabId, ms: Date.now() - t0 });
+    // Record the SHAPE of the reply, not the reply. Echoing the response text
+    // here would make the stream a copy of what the caller already received,
+    // which is worth nothing to them; what they cannot see is how long it took
+    // and how much came back.
+    dbg("tool", `${label} -> ${resultShape(result)}`, { tab: args && args.tabId, ms: Date.now() - t0 });
     // Upstream's separate per-call timing buffer, kept so its debug_timings tool
     // still reports. javascript_tool records its own richer entry (preMs/evalMs);
     // debug_timings reading the buffer should not pollute it.

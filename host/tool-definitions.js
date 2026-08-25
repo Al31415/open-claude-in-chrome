@@ -486,7 +486,7 @@ export const TOOLS = [
   {
     name: "debug",
     description:
-      "Read what this extension actually did: one timestamped stream of tool calls, CDP commands with their durations, dispatched input with its coordinates, what each click landed on, and native-host connection changes. Use it to verify an action had the effect you intended, or to find where time went — rather than inferring either from a tool result that looks the same whether it worked or not. Reports its own limits on every read: how many events were dropped, and how far back the buffer reaches, so a short log is never mistaken for a quiet system.",
+      "Read what this extension actually did, in one timestamped stream. This holds what tool responses deliberately LEAVE OUT — never a copy of them: the arguments a call was made with, what a click landed on even when it landed correctly and the response stayed silent, the coordinate space a screenshot was captured in, CDP commands and their durations, and input dispatches that failed after the send returned. Use it to verify an action had the effect you intended, or to find where time went, rather than inferring either from a result that reads the same whether it worked or not. Reports its own limits on every read: how many events were dropped, and how far back the buffer reaches, so a short log is never mistaken for a quiet system.",
     paramShape: {
       limit: z
         .number()
