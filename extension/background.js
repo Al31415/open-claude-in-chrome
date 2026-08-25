@@ -1884,15 +1884,20 @@ const toolHandlers = {
     const tab = await chrome.tabs.get(tabId);
 
     // A maximized or full-screen window ignores width/height, so it has to be
-    // returned to "normal" FIRST — and, crucially, the state change has to have
-    // landed before the resize is issued. Sending both in the same tick was the
-    // bug: chrome.windows.update resolves when the request is accepted, not
-    // when the window manager has applied it, so on macOS the resize raced the
-    // un-maximize and was dropped every time. Four different requested sizes
-    // all left the viewport untouched at 600x375.
+    // returned to "normal" FIRST, and the state change has to have landed before
+    // the resize is issued: chrome.windows.update resolves when the request is
+    // accepted, not when the window manager has applied it. Exiting macOS
+    // full-screen is an animation, which is why this polls rather than retrying
+    // once.
     //
-    // Exiting macOS full-screen is an animation, which is why this waits rather
-    // than simply retrying once.
+    // This guard is precautionary — it has never been observed firing. It was
+    // written to explain four resizes that left the viewport untouched, and that
+    // explanation was wrong: the cause was that Chrome does not re-layout a tab
+    // which is not the selected tab in its window (see the NOTE further down),
+    // and the window measured "normal" every time. So the race described above
+    // is plausible rather than demonstrated. It stays because the behaviour it
+    // guards against is real — a maximized window genuinely does ignore a resize
+    // — and because the whole block is a no-op on a window already normal.
     let win = await chrome.windows.get(tab.windowId);
     if (win.state !== "normal") {
       try {
