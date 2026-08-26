@@ -470,7 +470,11 @@
     //
     // The effective disabled state is deliberate: ctrl.disabled is the control's
     // own attribute, so it misses a control disabled by being inside a
-    // <fieldset disabled>. `:enabled` reflects the real, inheritable state.
+    // <fieldset disabled>, while ctrl.matches(":disabled") reflects the real,
+    // inheritable state. Testing :disabled (not :enabled) also matters because
+    // :enabled only matches button/input/select/textarea/option — it would
+    // wrongly mark non-disabled labelable elements like <meter>/<output>/
+    // <progress> as non-activatable and flag a healthy label as dead.
     //
     // The hit must be resolved through the DOM, not just the direct
     // elementFromPoint result: labels usually wrap a <span>/<svg> child, so the
@@ -482,7 +486,7 @@
     // input/button would count a DISABLED control as "still gets the click".
     const labelEl = node.closest ? node.closest("label") : null;
     const ctrl = labelEl && labelEl.control;
-    const noNativeActivation = !ctrl || !ctrl.matches(":enabled");
+    const noNativeActivation = !ctrl || ctrl.matches(":disabled");
     // [onclick]/[tabindex] must also exclude disabled controls: a disabled
     // control that happens to carry one still never receives the click.
     // ARIA roles are ASCII case-insensitive, so use the `i` flag. contenteditable
