@@ -1085,13 +1085,27 @@ async function probeClickTarget(tabId, cx, cy) {
       const lbl = el.closest("label");
       if (lbl && lbl.control && lbl.control.matches && lbl.control.matches(SEL)) {
         const r = lbl.control.getBoundingClientRect();
+        const cx = Math.round(r.x + r.width / 2);
+        const cy = Math.round(r.y + r.height / 2);
+        // Only redirect when the control actually sits on-screen where the new
+        // coordinate can be clicked. Custom checkbox/radio styles hide the
+        // native input offscreen (position:absolute; left:-9999px); there the
+        // label click already toggles the control natively, so suggesting an
+        // offscreen center would deadlock the caller on a point that never
+        // hits the control — pass such clicks through instead.
         if (r.width && r.height) {
-          return {
-            interactive: false,
-            hit: desc(el),
-            ancestor: desc(lbl.control),
-            suggested: [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)],
-          };
+          if (
+            cx >= 0 && cy >= 0 &&
+            cx <= window.innerWidth && cy <= window.innerHeight
+          ) {
+            return {
+              interactive: false,
+              hit: desc(el),
+              ancestor: desc(lbl.control),
+              suggested: [cx, cy],
+            };
+          }
+          return { interactive: true };
         }
       }
       return { interactive: false, hit: desc(el), noAncestor: true };
