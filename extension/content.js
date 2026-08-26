@@ -461,11 +461,19 @@
     // grow the ref map on every click.
     const existing = reverseMap.get(node);
     const ref = existing && elementMap[existing]?.deref() === node ? existing : null;
+    // A <label> not connected to any form control: browsers forward a click on
+    // a well-formed label to its .control, but a label with none is a native
+    // no-op (nothing activates) unless a script happens to listen. That is the
+    // one label state a caller cannot tell apart from a clean hit, so flag it
+    // rather than treating it like a working interactive element. Labels that
+    // DO have a control are fine — the browser activates the control natively.
+    const deadLabel = tag === "label" && !node.control;
     return {
       hit: { tag, attrs, cls, text, ref },
       // <html>/<body> means the point is over page background — nothing
       // interactive there, which is almost always a miss worth flagging.
       bare: tag === "html" || tag === "body",
+      deadLabel,
       viewport: [vw, vh]
     };
   }
