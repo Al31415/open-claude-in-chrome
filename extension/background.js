@@ -1079,33 +1079,36 @@ async function probeClickTarget(tabId, cx, cy) {
       // <label> that is itself the closest interactive-ish element is the dead
       // case worth redirecting, so the interactive-ancestor check wins here.
       if (el.closest(SEL)) return { interactive: true };
-      // A bare <label> overlaying its control is the genuinely dead case: the
-      // click lands on the label and activates nothing. Resolve the control it
-      // labels (wrapped content, or its for= target) and redirect there instead.
+      // A bare <label> overlaying its control is a candidate dead case — but
+      // only when native label activation can't toggle the control. Clicking
+      // label text natively activates an *enabled, on-screen* control in the
+      // browser, so those clicks already work and need no redirect; it is the
+      // controls that can't be natively activated (disabled, or pushed
+      // offscreen by custom checkbox/radio styles) that warrant handling.
       const lbl = el.closest("label");
       if (lbl && lbl.control && lbl.control.matches && lbl.control.matches(SEL)) {
         const r = lbl.control.getBoundingClientRect();
         const cx = Math.round(r.x + r.width / 2);
         const cy = Math.round(r.y + r.height / 2);
-        // Only redirect when the control actually sits on-screen where the new
-        // coordinate can be clicked. Custom checkbox/radio styles hide the
-        // native input offscreen (position:absolute; left:-9999px); there the
-        // label click already toggles the control natively, so suggesting an
-        // offscreen center would deadlock the caller on a point that never
-        // hits the control — pass such clicks through instead.
-        if (r.width && r.height) {
-          if (
-            cx >= 0 && cy >= 0 &&
-            cx <= window.innerWidth && cy <= window.innerHeight
-          ) {
-            return {
-              interactive: false,
-              hit: desc(el),
-              ancestor: desc(lbl.control),
-              suggested: [cx, cy],
-            };
-          }
-          return { interactive: true };
+        const rectOk = r.width && r.height;
+        const onScreen =
+          rectOk && cx >= 0 && cy >= 0 &&
+          cx <= window.innerWidth && cy <= window.innerHeight;
+        // Enabled, on-screen control: the click on the label already activates
+        // it natively — pass through rather than bounce the caller back.
+        if (onScreen && !lbl.control.disabled) return { interactive: true };
+        // Offscreen control (custom styles, left:-9999px): native label
+        // activation still toggles it, so also pass the click through.
+        if (rectOk && !onScreen) return { interactive: true };
+        // Disabled on-screen control: native activation won't fire, so hand the
+        // caller a coordinate to retry on the control itself.
+        if (rectOk) {
+          return {
+            interactive: false,
+            hit: desc(el),
+            ancestor: desc(lbl.control),
+            suggested: [cx, cy],
+          };
         }
       }
       return { interactive: false, hit: desc(el), noAncestor: true };
