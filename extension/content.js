@@ -483,15 +483,20 @@
     const labelEl = node.closest ? node.closest("label") : null;
     const ctrl = labelEl && labelEl.control;
     const noNativeActivation = !ctrl || !ctrl.matches(":enabled");
+    // [onclick]/[tabindex] must also exclude disabled controls: a disabled
+    // control that happens to carry one still never receives the click.
+    // ARIA roles are ASCII case-insensitive, so use the `i` flag. contenteditable
+    // and media controls are natively interactive targets of their own.
     const interactiveAncestor = node.closest(
       "a[href],a[onclick]," +
       "button:enabled,input:enabled,textarea:enabled,select:enabled," +
       "summary," +
-      "[onclick],[tabindex]," +
-      "[role=button],[role=combobox],[role=link],[role=menuitem],[role=menuitemradio]," +
-      "[role=menuitemcheckbox],[role=option],[role=radio],[role=checkbox],[role=tab]," +
-      "[role=switch],[role=textbox],[role=spinbutton],[role=slider],[role=listbox]," +
-      "[role=treeitem]"
+      "[onclick]:not(:disabled),[tabindex]:not(:disabled)," +
+      "[contenteditable]:not([contenteditable=\"false\"]),audio[controls],video[controls]," +
+      "[role=button i],[role=combobox i],[role=link i],[role=menuitem i],[role=menuitemradio i]," +
+      "[role=menuitemcheckbox i],[role=option i],[role=radio i],[role=checkbox i],[role=tab i]," +
+      "[role=switch i],[role=textbox i],[role=spinbutton i],[role=slider i],[role=listbox i]," +
+      "[role=treeitem i]"
     );
     const deadLabel = !!labelEl && noNativeActivation && !interactiveAncestor;
     return {
