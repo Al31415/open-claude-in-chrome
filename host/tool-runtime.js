@@ -162,12 +162,34 @@ const tcpServer = net.createServer((socket) => {
   let classified = false;
   let earlyBuffer = Buffer.alloc(0);
 
+  // An accepted socket is UNCLASSIFIED for up to 500ms, and until it is
+  // classified nothing downstream has attached an 'error' listener. In Node an
+  // unhandled 'error' event is a thrown exception, so a peer that vanishes in
+  // that window — a client MCP process killed mid-request, which is routine:
+  // every short-lived probe ends that way — takes the whole primary down with
+  // an ECONNRESET, silently, exiting 1 with no OS crash record. Every client
+  // proxying through it then sees its pipe close at once.
+  //
+  // The listener is attached at accept time and stays attached for the
+  // socket's whole life. setupClientConnection / setupNativeHostConnection add
+  // their own handlers later; extra 'error' listeners are harmless, an absent
+  // one is fatal.
+  socket.on("error", (err) => {
+    process.stderr.write(
+      `Connection error before classification (${err.code || err.message}) — ` +
+        `dropping that socket, staying up\n`
+    );
+    socket.destroy();
+  });
+
   const classifyTimeout = setTimeout(() => {
     if (!classified) {
       classified = true;
       setupNativeHostConnection(socket, earlyBuffer);
     }
   }, 500);
+
+  socket.on("close", () => clearTimeout(classifyTimeout));
 
   socket.on("data", function onEarlyData(chunk) {
     if (classified) return;
