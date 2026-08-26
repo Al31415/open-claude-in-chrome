@@ -463,20 +463,35 @@
     const ref = existing && elementMap[existing]?.deref() === node ? existing : null;
     // Whether a click here can be a no-op a caller can't tell apart from a hit.
     // Flag it only when the point is on/inside a <label> whose associated
-    // control is missing OR disabled (browsers forward a click to a label's
-    // .control only when that control can actually be activated), AND no
-    // interactive ancestor is present to receive the bubbled click. A click on
-    // a label with a working control, or on a label under a button/role/onclick
-    // ancestor, still reaches a real target and must not read as dead.
+    // control is missing OR not natively activatable, AND no live interactive
+    // element is present to receive the bubbled click. A click on a label with
+    // a working control, or on a label under a real interactive ancestor, still
+    // reaches a target and must not read as dead.
+    //
+    // The effective disabled state is deliberate: ctrl.disabled is the control's
+    // own attribute, so it misses a control disabled by being inside a
+    // <fieldset disabled>. `:enabled` reflects the real, inheritable state.
     //
     // The hit must be resolved through the DOM, not just the direct
     // elementFromPoint result: labels usually wrap a <span>/<svg> child, so the
     // point often lands on the child, not the <label> itself.
+    //
+    // The ancestor selector matches only LIVE interactive elements: enabled form
+    // controls, acted-on anchors, and interactive ARIA roles. Bare [role] would
+    // match presentational/landmark roles like banner or presentation; bare
+    // input/button would count a DISABLED control as "still gets the click".
     const labelEl = node.closest ? node.closest("label") : null;
     const ctrl = labelEl && labelEl.control;
-    const noNativeActivation = !ctrl || ctrl.disabled;
+    const noNativeActivation = !ctrl || !ctrl.matches(":enabled");
     const interactiveAncestor = node.closest(
-      "a,[role],button,summary,input,textarea,select,[onclick],[tabindex]"
+      "a[href],a[onclick]," +
+      "button:enabled,input:enabled,textarea:enabled,select:enabled," +
+      "summary," +
+      "[onclick],[tabindex]," +
+      "[role=button],[role=combobox],[role=link],[role=menuitem],[role=menuitemradio]," +
+      "[role=menuitemcheckbox],[role=option],[role=radio],[role=checkbox],[role=tab]," +
+      "[role=switch],[role=textbox],[role=spinbutton],[role=slider],[role=listbox]," +
+      "[role=treeitem]"
     );
     const deadLabel = !!labelEl && noNativeActivation && !interactiveAncestor;
     return {
