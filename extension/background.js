@@ -1096,12 +1096,12 @@ function hitNote_(p) {
   const r = p.r;
   if (r.hit && !r.bare && !r.deadLabel) return "";
   const vp = r.viewport ? `${r.viewport[0]}x${r.viewport[1]}` : "the";
-  // A label with no associated control is a native no-op a caller can't tell
-  // apart from a clean hit — browsers only forward activation for a label that
-  // is actually connected to a control. Surface it instead of letting it read
-  // as a successful click of whatever it visually covers.
+  // A label with no activatable control and no interactive ancestor: browsers
+  // forward activation only for a label actually wired to a live control, so
+  // nothing native is guaranteed to receive this click. It may still be caught
+  // by a delegated handler we can't see, so warn rather than claim it failed.
   if (r.deadLabel) {
-    return ` — WARNING: landed on a <label> with no associated control, so the click activated nothing. Pass the control's ref instead of raw coordinates if you intended the widget it labels.`;
+    return ` — WARNING: landed on a <label> whose control is missing or disabled, so the click may not have activated the widget it labels. Pass the control's ref instead of raw coordinates if that widget was intended.`;
   }
   if (!r.hit) {
     return r.outside

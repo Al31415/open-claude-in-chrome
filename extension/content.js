@@ -461,13 +461,24 @@
     // grow the ref map on every click.
     const existing = reverseMap.get(node);
     const ref = existing && elementMap[existing]?.deref() === node ? existing : null;
-    // A <label> not connected to any form control: browsers forward a click on
-    // a well-formed label to its .control, but a label with none is a native
-    // no-op (nothing activates) unless a script happens to listen. That is the
-    // one label state a caller cannot tell apart from a clean hit, so flag it
-    // rather than treating it like a working interactive element. Labels that
-    // DO have a control are fine — the browser activates the control natively.
-    const deadLabel = tag === "label" && !node.control;
+    // Whether a click here can be a no-op a caller can't tell apart from a hit.
+    // Flag it only when the point is on/inside a <label> whose associated
+    // control is missing OR disabled (browsers forward a click to a label's
+    // .control only when that control can actually be activated), AND no
+    // interactive ancestor is present to receive the bubbled click. A click on
+    // a label with a working control, or on a label under a button/role/onclick
+    // ancestor, still reaches a real target and must not read as dead.
+    //
+    // The hit must be resolved through the DOM, not just the direct
+    // elementFromPoint result: labels usually wrap a <span>/<svg> child, so the
+    // point often lands on the child, not the <label> itself.
+    const labelEl = node.closest ? node.closest("label") : null;
+    const ctrl = labelEl && labelEl.control;
+    const noNativeActivation = !ctrl || ctrl.disabled;
+    const interactiveAncestor = node.closest(
+      "a,[role],button,summary,input,textarea,select,[onclick],[tabindex]"
+    );
+    const deadLabel = !!labelEl && noNativeActivation && !interactiveAncestor;
     return {
       hit: { tag, attrs, cls, text, ref },
       // <html>/<body> means the point is over page background — nothing
