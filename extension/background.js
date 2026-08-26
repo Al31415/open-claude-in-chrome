@@ -1069,19 +1069,28 @@ async function probeClickTarget(tabId, cx, cy) {
       if (!el || typeof el.matches !== "function") return { interactive: true };
       const SEL = ${JSON.stringify(INTERACTIVE_SELECTOR)};
       if (el.matches(SEL)) return { interactive: true };
-      const anc = el.closest(SEL);
       const desc = (e) => e && e.tagName
         ? { tag: e.tagName.toLowerCase(), text: (e.innerText || e.textContent || "").trim().slice(0, 40) }
         : null;
-      if (anc) {
-        const r = anc.getBoundingClientRect();
-        return {
-          interactive: false,
-          hit: desc(el),
-          ancestor: desc(anc),
-          suggested: [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)],
-        };
+      // A bare <label> overlaying its control is the genuinely dead case: the
+      // click lands on the label and activates nothing. Resolve the control it
+      // labels (wrapped content, or its for= target) and redirect there instead.
+      const lbl = el.closest("label");
+      if (lbl && lbl.control && lbl.control.matches && lbl.control.matches(SEL)) {
+        const r = lbl.control.getBoundingClientRect();
+        if (r.width && r.height) {
+          return {
+            interactive: false,
+            hit: desc(el),
+            ancestor: desc(lbl.control),
+            suggested: [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)],
+          };
+        }
       }
+      // Any other non-interactive hit nested inside a real interactive container
+      // (button/a/[tabindex]/[role]) bubbles its click into that container, so
+      // the click already works — do not block and force a re-click on the center.
+      if (el.closest(SEL)) return { interactive: true };
       return { interactive: false, hit: desc(el), noAncestor: true };
     })()`;
     const res = await cdp(tabId, "Runtime.evaluate", { expression: expr, returnByValue: true });
@@ -1095,13 +1104,12 @@ async function probeClickTarget(tabId, cx, cy) {
 // ancestor, block the click and hand the caller the corrected coordinate
 // instead of silently no-oping. Returns null when the click should proceed.
 function maybeBlockNonInteractiveClick(coordinate, target) {
-  // If the interactive ancestor's center is essentially the clicked point, the
-  // click already lands inside the ancestor's hit area (the point sits on a
-  // non-interactive child of an ancestor whose center coincides with it).
-  // Suggesting that same point would deadlock the caller in a block->re-click
-  // loop (e.g. a [tabindex] row whose label spans its full width), and the
-  // click would in fact reach the ancestor natively via event bubbling — so
-  // let it through instead of blocking.
+  // Only the label-over-control case reaches here (see probeClickTarget): the
+  // hit is a bare <label> and target.ancestor is the control it labels. If that
+  // control's center is essentially the clicked point, the click already lands
+  // on the control itself — let it through rather than deadlocking in a
+  // block->re-click loop. Clicks nested inside button/a/[tabindex] never get
+  // here: they bubble, so the probe reports them interactive.
   const SAME_POINT_PX = 4;
   if (target.interactive === false && target.ancestor && target.suggested) {
     const d =
