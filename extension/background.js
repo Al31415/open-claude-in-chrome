@@ -1024,6 +1024,103 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Elements that reliably carry a click target. CDP clicks exactly (x,y), but
+// elementFromPoint reports what is VISUALLY there — for row/dropdown widgets
+// that is often a non-interactive label whose real clickable control (a
+// trailing button/chevron/radio) sits offset from the label's center. Clicking
+// the label center is a silent no-op. `label` is deliberately excluded: a bare
+// label isn't reliably clickable and a wrapping label's hit area is the wrapped
+// control, so treating it as interactive would mark the exact no-op point as OK.
+const INTERACTIVE_SELECTOR = [
+  "button",
+  "[role=button]",
+  "[role=combobox]",
+  "[role=menuitem]",
+  "[role=menuitemradio]",
+  "[role=menuitemcheckbox]",
+  "[role=option]",
+  "[role=radio]",
+  "[role=checkbox]",
+  "a",
+  "input",
+  "textarea",
+  "select",
+  "summary",
+  "[onclick]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+// Resolve the interactive hit-target for a raw click coordinate before
+// dispatching. Returns one of:
+//   { interactive: true }                             -> (x,y) is fine to click
+//   { interactive: false, hit, ancestor, suggested }  -> point is on a label;
+//                                                       block and suggest the
+//                                                       interactive ancestor's center
+//   { interactive: false, hit, noAncestor: true }     -> no clickable ancestor;
+//                                                       the raw click is likely a
+//                                                       no-op (caller may dispatch)
+// On any probe failure we fall back to interactive:true so a broken probe never
+// blocks a click the caller explicitly asked for.
+async function probeClickTarget(tabId, cx, cy) {
+  try {
+    await ensureAttached(tabId);
+    const expr = `(() => {
+      const el = document.elementFromPoint(${Number(cx)}, ${Number(cy)});
+      if (!el || typeof el.matches !== "function") return { interactive: true };
+      const SEL = ${JSON.stringify(INTERACTIVE_SELECTOR)};
+      if (el.matches(SEL)) return { interactive: true };
+      const anc = el.closest(SEL);
+      const desc = (e) => e && e.tagName
+        ? { tag: e.tagName.toLowerCase(), text: (e.innerText || e.textContent || "").trim().slice(0, 40) }
+        : null;
+      if (anc) {
+        const r = anc.getBoundingClientRect();
+        return {
+          interactive: false,
+          hit: desc(el),
+          ancestor: desc(anc),
+          suggested: [Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2)],
+        };
+      }
+      return { interactive: false, hit: desc(el), noAncestor: true };
+    })()`;
+    const res = await cdp(tabId, "Runtime.evaluate", { expression: expr, returnByValue: true });
+    return res?.result?.value ?? { interactive: true };
+  } catch {
+    return { interactive: true };
+  }
+}
+
+// If the probe says the point is on a non-interactive label with an interactive
+// ancestor, block the click and hand the caller the corrected coordinate
+// instead of silently no-oping. Returns null when the click should proceed.
+function maybeBlockNonInteractiveClick(coordinate, target) {
+  // If the interactive ancestor's center is essentially the clicked point, the
+  // click already lands inside the ancestor's hit area (the point sits on a
+  // non-interactive child of an ancestor whose center coincides with it).
+  // Suggesting that same point would deadlock the caller in a block->re-click
+  // loop (e.g. a [tabindex] row whose label spans its full width), and the
+  // click would in fact reach the ancestor natively via event bubbling — so
+  // let it through instead of blocking.
+  const SAME_POINT_PX = 4;
+  if (target.interactive === false && target.ancestor && target.suggested) {
+    const d =
+      Math.abs(target.suggested[0] - coordinate[0]) +
+      Math.abs(target.suggested[1] - coordinate[1]);
+    if (d < SAME_POINT_PX) return null;
+    return {
+      content: [{
+        type: "text",
+        text: `Click at (${coordinate[0]},${coordinate[1]}) lands on non-interactive <${target.hit.tag}> "${target.hit.text}". ` +
+          `Closest interactive <${target.ancestor.tag}> "${target.ancestor.text}" is at ` +
+          `(${target.suggested[0]},${target.suggested[1]}). Call the click action again with that ` +
+          `coordinate to confirm.`,
+      }],
+    };
+  }
+  return null;
+}
+
 
 // --- What a coordinate-based action actually landed on -----------------------
 //
@@ -1449,6 +1546,11 @@ const toolHandlers = {
 
       case "left_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for left_click" }] };
+        // If the point is a non-interactive label over an interactive control
+        // (the reported dropdown case), block and suggest the corrected
+        // coordinate instead of silently no-oping at the label center.
+        const blocked = maybeBlockNonInteractiveClick(coordinate, await probeClickTarget(tabId, coordinate[0], coordinate[1]));
+        if (blocked) return blocked;
         await mouseClick(tabId, coordinate[0], coordinate[1], { modifiers });
         return { content: [{ type: "text", text: `Clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
@@ -1478,18 +1580,24 @@ const toolHandlers = {
 
       case "right_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for right_click" }] };
+        const blockedR = maybeBlockNonInteractiveClick(coordinate, await probeClickTarget(tabId, coordinate[0], coordinate[1]));
+        if (blockedR) return blockedR;
         await mouseClick(tabId, coordinate[0], coordinate[1], { button: "right", modifiers });
         return { content: [{ type: "text", text: `Right-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "double_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for double_click" }] };
+        const blockedD = maybeBlockNonInteractiveClick(coordinate, await probeClickTarget(tabId, coordinate[0], coordinate[1]));
+        if (blockedD) return blockedD;
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 2, modifiers });
         return { content: [{ type: "text", text: `Double-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
 
       case "triple_click": {
         if (!coordinate) return { content: [{ type: "text", text: "coordinate is required for triple_click" }] };
+        const blockedT = maybeBlockNonInteractiveClick(coordinate, await probeClickTarget(tabId, coordinate[0], coordinate[1]));
+        if (blockedT) return blockedT;
         await mouseClick(tabId, coordinate[0], coordinate[1], { clickCount: 3, modifiers });
         return { content: [{ type: "text", text: `Triple-clicked at (${coordinate[0]}, ${coordinate[1]})${hitNote}` }] };
       }
