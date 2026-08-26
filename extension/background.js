@@ -1072,6 +1072,13 @@ async function probeClickTarget(tabId, cx, cy) {
       const desc = (e) => e && e.tagName
         ? { tag: e.tagName.toLowerCase(), text: (e.innerText || e.textContent || "").trim().slice(0, 40) }
         : null;
+      // Pass through first any non-interactive hit nested inside a real
+      // interactive container (button/a/[tabindex]/[role]) — including one
+      // sitting inside a <label> — because browser events bubble from the
+      // descendant into that container, so the click already works. Only a bare
+      // <label> that is itself the closest interactive-ish element is the dead
+      // case worth redirecting, so the interactive-ancestor check wins here.
+      if (el.closest(SEL)) return { interactive: true };
       // A bare <label> overlaying its control is the genuinely dead case: the
       // click lands on the label and activates nothing. Resolve the control it
       // labels (wrapped content, or its for= target) and redirect there instead.
@@ -1087,10 +1094,6 @@ async function probeClickTarget(tabId, cx, cy) {
           };
         }
       }
-      // Any other non-interactive hit nested inside a real interactive container
-      // (button/a/[tabindex]/[role]) bubbles its click into that container, so
-      // the click already works — do not block and force a re-click on the center.
-      if (el.closest(SEL)) return { interactive: true };
       return { interactive: false, hit: desc(el), noAncestor: true };
     })()`;
     const res = await cdp(tabId, "Runtime.evaluate", { expression: expr, returnByValue: true });
