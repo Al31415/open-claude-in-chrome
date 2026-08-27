@@ -1024,7 +1024,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-
 // --- What a coordinate-based action actually landed on -----------------------
 //
 // A dispatch always "succeeds": the events go out whether or not anything is
@@ -1095,8 +1094,15 @@ function formatHit(p) {
 function hitNote_(p) {
   if (!p.ok) return "";
   const r = p.r;
-  if (r.hit && !r.bare) return "";
+  if (r.hit && !r.bare && !r.deadLabel) return "";
   const vp = r.viewport ? `${r.viewport[0]}x${r.viewport[1]}` : "the";
+  // A label with no activatable control and no interactive ancestor: browsers
+  // forward activation only for a label actually wired to a live control, so
+  // nothing native is guaranteed to receive this click. It may still be caught
+  // by a delegated handler we can't see, so warn rather than claim it failed.
+  if (r.deadLabel) {
+    return ` — WARNING: landed on a <label> whose control is missing or disabled, so the click may not have activated the widget it labels. Pass the control's ref instead of raw coordinates if that widget was intended.`;
+  }
   if (!r.hit) {
     return r.outside
       ? ` — WARNING: nothing received this. The point is outside the ${vp} viewport, so it landed on no element. Pass the element's ref instead of raw coordinates and it will be scrolled into view automatically.`
