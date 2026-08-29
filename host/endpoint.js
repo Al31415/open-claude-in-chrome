@@ -43,13 +43,27 @@ export function getPort() {
   return configFile().port || DEFAULT_PORT;
 }
 
+// os.userInfo() THROWS rather than returning null when the account has no
+// passwd entry — routine inside containers — and this runs before anything
+// else, so an unhandled throw here would look like the bridge simply not
+// existing. Fall back to the environment, then to a constant: a wrong-but-
+// stable name still rendezvouses correctly, since both sides compute it the
+// same way.
+function currentUser() {
+  try {
+    const { username } = os.userInfo();
+    if (username) return username;
+  } catch {}
+  return process.env.USER || process.env.USERNAME || "default";
+}
+
 export function getPipePath() {
   if (process.env.OCIC_PIPE) return process.env.OCIC_PIPE;
   const configured = configFile().pipe;
   if (configured) return configured;
   // Windows pipe names live in a flat namespace and allow almost anything;
   // POSIX socket paths are length-limited (~104 bytes), so keep both short.
-  const user = String(os.userInfo().username || "user").replace(/[^\w.-]/g, "_");
+  const user = currentUser().replace(/[^\w.-]/g, "_").slice(0, 32);
   if (process.platform === "win32") {
     return `\\\\.\\pipe\\open-claude-in-chrome-${user}`;
   }
@@ -60,7 +74,14 @@ export function getPipePath() {
 // users regardless of the socket's own mode. Windows named pipes get the
 // equivalent from their default ACL.
 export function socketDir() {
-  return path.join(os.tmpdir(), `open-claude-in-chrome-${os.userInfo().uid ?? 0}`);
+  let uid;
+  try {
+    uid = os.userInfo().uid;
+  } catch {}
+  return path.join(
+    os.tmpdir(),
+    `open-claude-in-chrome-${uid ?? currentUser().replace(/[^\w.-]/g, "_")}`
+  );
 }
 
 export function ensureSocketDir() {
