@@ -277,6 +277,35 @@ await test("a client that vanishes mid-request does not take the host down", asy
   ext.kill();
 });
 
+await test("the host forgets clients that go away", async (pipe) => {
+  // A live host was found holding 28 client entries, far more than the number
+  // of sessions that had ever existed. If entries survive their sockets the
+  // table grows for the life of the browser, and every recording broadcast
+  // walks a list mostly made of corpses.
+  const ext = fakeExtension();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
+
+  const clients = [];
+  for (let i = 0; i < 12; i++) clients.push(fakeClient(pipe, `c${i}`));
+  await Promise.all(clients.map((c) => c.ready));
+  await waitFor(
+    async () => /attached \(12 total\)/.test(ext.stderrText()),
+    5000,
+    "host counts 12 attached"
+  );
+
+  // Half leave politely, half vanish without a FIN.
+  clients.slice(0, 6).forEach((c) => c.close());
+  clients.slice(6).forEach((c) => c.hardKill());
+
+  await waitFor(
+    async () => /detached \(0 left\)/.test(ext.stderrText()),
+    5000,
+    "host drops back to 0 clients — entries did not leak"
+  );
+  ext.kill();
+});
+
 await test("stale clients cannot block a fresh host from owning the bridge", async (pipe) => {
   // The #41 scenario: sessions died long ago but their MCP processes live on.
   // Under host-owned ownership they are only clients, so they hold nothing.
