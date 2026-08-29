@@ -14,6 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { init, callTool, shutdown, coerceArgs } from "./tool-runtime.js";
 import { TOOLS } from "./tool-definitions.js";
+import { watchParent } from "./parent-watch.js";
 
 function exitClean(code = 0) {
   try {
@@ -27,6 +28,11 @@ process.on("SIGINT", () => exitClean());
 process.on("SIGHUP", () => exitClean());
 process.stdin.on("end", () => exitClean());
 process.stdin.resume();
+
+// stdin EOF is the fast path, but it only arrives if nobody else holds a copy
+// of the write end. Watching the parent directly is the backstop that does not
+// depend on the pipe — without it these processes accumulate indefinitely.
+watchParent(() => exitClean());
 
 await init();
 

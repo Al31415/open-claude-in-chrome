@@ -481,9 +481,6 @@ function sendToExtension(tool, args) {
 
 function startClientMode() {
   mode = "client";
-  process.stderr.write(
-    `Port ${TCP_PORT} in use. Connecting as client to primary MCP server...\n`
-  );
 
   function connect(viaPort = false) {
     // Prefer the pipe. That is where a current native host serves, and unlike

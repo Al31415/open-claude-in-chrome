@@ -77,6 +77,8 @@ const PIPE_PATH = getPipePath();
 
 let mode = null; // "hub" once we own the port; "legacy" while someone else does
 let pipeOwned = false; // serving clients on the pipe, independent of the port
+let lastExtensionTraffic = Date.now();
+let heartbeatsSeen = 0;
 
 // Legacy role: we are a TCP client of whichever MCP server owns the port.
 let tcpSocket = null;
@@ -234,9 +236,12 @@ function attachClient(socket, initialBuffer) {
 
 // Route one extension-originated message to whoever is waiting for it.
 function routeFromExtension(msg) {
-  // Liveness ping from the service worker. It exists to keep the SW and this
-  // pipe warm; nothing downstream needs it.
-  if (msg.type === "heartbeat") return;
+  // Liveness ping from the service worker. Nothing downstream needs it, but
+  // its rhythm is what the deaf-extension watchdog below keys off.
+  if (msg.type === "heartbeat") {
+    heartbeatsSeen++;
+    return;
+  }
   if (msg.type === "recording_complete") {
     // Unsolicited: any attached session may be the one holding the Claude
     // channel, so every client gets a copy.
@@ -564,6 +569,7 @@ function handleWriteTempFile(msg) {
 let stdinBuffer = Buffer.alloc(0);
 
 process.stdin.on("data", (chunk) => {
+  lastExtensionTraffic = Date.now();
   stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   const { messages, remainder } = readNativeMessage(stdinBuffer);
   stdinBuffer = remainder;
@@ -615,6 +621,34 @@ process.stdin.on("end", () => {
   } catch {}
   process.exit(0);
 });
+
+// --- Deaf-extension watchdog ---
+//
+// The worst failure this bridge has is not dying, it is going deaf: still
+// holding the rendezvous, still accepting connections, never answering. Nothing
+// recovers from that on its own, because every mechanism we have keys off the
+// owner being GONE. Dying is the recoverable state — Chrome notices, respawns
+// us, and clients reconnect — so if we cannot reach the extension any more, the
+// useful thing to do is stop existing.
+//
+// The signal is already there: background.js posts a heartbeat every ~15s. Long
+// silence means the service worker is wedged or gone.
+//
+// Armed only after we have actually seen heartbeats. An extension too old to
+// send them would otherwise look permanently deaf, and we would exit-loop —
+// which is why this is safe to ship ahead of any extension change.
+const SILENCE_LIMIT_MS = 60_000;
+
+setInterval(() => {
+  if (heartbeatsSeen < 2) return; // never saw a heartbeat: not our signal to use
+  const silentFor = Date.now() - lastExtensionTraffic;
+  if (silentFor < SILENCE_LIMIT_MS) return;
+  process.stderr.write(
+    `No word from the extension for ${Math.round(silentFor / 1000)}s — exiting so ` +
+      `a fresh host can take the bridge.\n`
+  );
+  process.exit(0);
+}, 15_000).unref();
 
 // Own the bridge; and take the legacy port too, or attach to whoever has it.
 claimPipe();

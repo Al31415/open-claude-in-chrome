@@ -408,11 +408,13 @@ await test("a session starting against a live host never binds the port", async 
   ext.kill();
 });
 
-await test("host takes the port from an incumbent MCP primary, which rejoins as a client", async (port) => {
+await test("host takes the port from an incumbent MCP primary, which rejoins as a client", async (port, pipe) => {
   // Boot order the old way round: a Claude session starts while the browser is
   // down, binds the port, and is still holding it when the browser comes up.
   const primary = spawn(process.execPath, [RUNTIME_HARNESS], {
-    env: { ...process.env, OCIC_PORT: String(port) },
+    // Must carry the scratch pipe too, or it finds the machine's real host and
+    // sensibly joins that instead of binding anything.
+    env: { ...process.env, OCIC_PORT: String(port), OCIC_PIPE: pipe },
     stdio: ["ignore", "pipe", "pipe"]
   });
   const primaryErr = [];
