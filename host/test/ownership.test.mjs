@@ -408,6 +408,45 @@ await test("a session starting against a live host never binds the port", async 
   ext.kill();
 });
 
+await test("a waiting host takes over promptly when the owner releases", async (port, pipe) => {
+  // This is the switch_browser hand-off. background.js drops the outgoing
+  // browser's host and suspends reconnect for SWITCH_RELEASE_MS (15s); the
+  // incoming browser only gets the bridge if it probes inside that window. A
+  // host that backed off to a 15s retry on its first EADDRINUSE would land
+  // there by luck, so the reclaim has to be well inside the window.
+  const owner = fakeExtension(port, pipe);
+  await waitFor(
+    async () => /owns the bridge at/.test(owner.stderrText()),
+    5000,
+    "first host owns the bridge"
+  );
+
+  const waiting = fakeExtension(port, pipe);
+  await sleep(2500); // long enough that a 15s backoff would still be sleeping
+  assert(
+    !/owns the bridge at/.test(waiting.stderrText()),
+    "second host claimed a bridge that was still held"
+  );
+
+  const releasedAt = Date.now();
+  owner.disconnect();
+  await waitFor(
+    async () => /owns the bridge at/.test(waiting.stderrText()),
+    8000,
+    "waiting host takes over"
+  );
+  const took = Date.now() - releasedAt;
+  assert(took < 5000, `took ${took}ms to reclaim — outside the 15s switch window`);
+
+  waiting.autoRespond();
+  const c = fakeClient(pipe, "after-switch");
+  await c.ready;
+  const reply = await c.call("navigate");
+  assert(reply.result?.echo === "navigate", "new owner not serving after hand-off");
+  c.close();
+  waiting.kill();
+});
+
 await test("host takes the port from an incumbent MCP primary, which rejoins as a client", async (port, pipe) => {
   // Boot order the old way round: a Claude session starts while the browser is
   // down, binds the port, and is still holding it when the browser comes up.
