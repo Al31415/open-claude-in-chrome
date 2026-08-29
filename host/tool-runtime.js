@@ -14,6 +14,7 @@ import path from "node:path";
 import os from "node:os";
 
 import { getPort, getPipePath } from "./endpoint.js";
+import { noteActivity } from "./parent-watch.js";
 
 const TCP_PORT = getPort();
 const PIPE_PATH = getPipePath();
@@ -698,6 +699,7 @@ function textResult(text) {
  * safe to invoke directly with values straight off the MCP wire.
  */
 export async function callTool(toolName, args) {
+  noteActivity();
   try {
     const coerced = coerceArgs(args ?? {});
     const result = await sendToExtension(toolName, coerced);

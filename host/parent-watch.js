@@ -63,6 +63,20 @@ function parentIsAlive(ppid) {
   }
 }
 
+// The other way these pile up, and the one parent-watching cannot see: a
+// long-lived client that spawns a server, stops using it, and never closes its
+// stdin. The parent is alive and healthy, so nothing about it is a signal — the
+// process is simply abandoned. Only idleness gives it away.
+//
+// Off by default, and it has to be: an interactive session can sit idle for
+// hours while someone thinks, and exiting under it would produce exactly the
+// dropped connection this whole change exists to prevent. Programs that spawn
+// servers in a loop can opt in with OCIC_IDLE_EXIT_MS.
+let lastActivity = Date.now();
+export function noteActivity() {
+  lastActivity = Date.now();
+}
+
 /**
  * Call `onOrphaned` once the spawning process is gone. Returns a stop function.
  *
@@ -86,7 +100,13 @@ export function watchParent(onOrphaned) {
     onOrphaned();
   };
 
+  const idleLimit = parseInt(process.env.OCIC_IDLE_EXIT_MS || "", 10);
+
   const timer = setInterval(async () => {
+    if (idleLimit > 0 && Date.now() - lastActivity > idleLimit) {
+      return orphaned(`idle for ${Math.round((Date.now() - lastActivity) / 1000)}s`);
+    }
+
     const ppid = process.ppid;
 
     // POSIX reparents orphans to init, which is unambiguous and free.
