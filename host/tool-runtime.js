@@ -13,28 +13,10 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const DEFAULT_PORT = 18765;
-
-function getPort() {
-  // Env override first, so a test harness can stand up a whole hub + client
-  // fleet on a scratch port without disturbing the live one on :18765.
-  const fromEnv = parseInt(process.env.OCIC_PORT || "", 10);
-  if (fromEnv > 0) return fromEnv;
-  const configPath = path.join(
-    os.homedir(),
-    ".config",
-    "open-claude-in-chrome",
-    "config.json"
-  );
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return config.port || DEFAULT_PORT;
-  } catch {
-    return DEFAULT_PORT;
-  }
-}
+import { getPort, getPipePath } from "./endpoint.js";
 
 const TCP_PORT = getPort();
+const PIPE_PATH = getPipePath();
 
 let mode = "primary"; // or "client"
 let started = false;
@@ -503,15 +485,25 @@ function startClientMode() {
     `Port ${TCP_PORT} in use. Connecting as client to primary MCP server...\n`
   );
 
-  function connect() {
-    primarySocket = net.createConnection(TCP_PORT, "127.0.0.1", () => {
+  function connect(viaPort = false) {
+    // Prefer the pipe. That is where a current native host serves, and unlike
+    // the port it cannot be squatted by a process that should have exited.
+    // The port is the fallback, for an older host or an older primary.
+    primarySocket = viaPort
+      ? net.createConnection(TCP_PORT, "127.0.0.1")
+      : net.createConnection(PIPE_PATH);
+    const socket = primarySocket;
+    let established = false;
+
+    socket.on("connect", () => {
+      established = true;
       process.stderr.write(
-        `Connected to primary MCP server on :${TCP_PORT}\n`
+        `Connected to browser bridge via ${viaPort ? `:${TCP_PORT}` : PIPE_PATH}\n`
       );
-      primarySocket.write(JSON.stringify({ type: "client_hello" }) + "\n");
+      socket.write(JSON.stringify({ type: "client_hello" }) + "\n");
     });
 
-    primarySocket.on("data", (chunk) => {
+    socket.on("data", (chunk) => {
       clientBuffer = Buffer.concat([clientBuffer, chunk]);
       let idx;
       while ((idx = clientBuffer.indexOf(10)) !== -1) {
@@ -545,12 +537,22 @@ function startClientMode() {
       }
     });
 
-    primarySocket.on("error", (err) => {
+    socket.on("error", (err) => {
+      // A pipe attempt that never connected just means no current host is
+      // serving there; the close handler falls back to the port. Only report
+      // errors on a link that was actually up.
+      if (!established && !viaPort) return;
       process.stderr.write(`Client connection error: ${err.message}\n`);
     });
 
-    primarySocket.on("close", () => {
-      primarySocket = null;
+    socket.on("close", () => {
+      if (primarySocket === socket) primarySocket = null;
+      if (!established && !viaPort) {
+        // Nothing is listening on the pipe. Try the port before concluding
+        // there is no bridge at all.
+        connect(true);
+        return;
+      }
       for (const [, { reject, timer }] of pendingRequests) {
         clearTimeout(timer);
         reject(new Error("Primary MCP server disconnected"));
@@ -589,10 +591,26 @@ function startClientMode() {
 
 // --- Public API ---
 
+// Is a native host serving the bridge right now? A bare connect is enough:
+// only a live listener accepts, so this cannot be fooled by a leftover socket
+// path or by a process that has stopped serving.
+function bridgeIsServing() {
+  return new Promise((resolve) => {
+    const probe = net.createConnection(PIPE_PATH);
+    const done = (value) => {
+      probe.destroy();
+      resolve(value);
+    };
+    probe.on("connect", () => done(true));
+    probe.on("error", () => done(false));
+    setTimeout(() => done(false), 500);
+  });
+}
+
 /**
- * Connect to (or become) the shared tool runtime. Safe to call from
- * multiple processes — first to bind the port is primary, others
- * become clients of the primary.
+ * Join the browser bridge. Normally that means connecting to the native host,
+ * which owns it; a process that starts while the browser is down falls back to
+ * holding the legacy port itself and hands it over when the host appears.
  */
 export async function init() {
   if (started) return;
@@ -615,6 +633,14 @@ export async function init() {
         }
       }
     } catch {}
+  }
+
+  // If a native host is already serving the bridge, just join it. Binding the
+  // port here would make this process a primary that nobody needs and that the
+  // host then has to prise the port back from — the exact churn this replaces.
+  if (await bridgeIsServing()) {
+    startClientMode();
+    return;
   }
 
   return new Promise((resolve) => {

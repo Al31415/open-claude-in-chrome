@@ -10,26 +10,12 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const DEFAULT_PORT = 18765;
-
-function getPort() {
-  // Env override first, so a test harness can stand up a whole hub + client
-  // fleet on a scratch port without disturbing the live one on :18765.
-  const fromEnv = parseInt(process.env.OCIC_PORT || "", 10);
-  if (fromEnv > 0) return fromEnv;
-  const configPath = path.join(
-    os.homedir(),
-    ".config",
-    "open-claude-in-chrome",
-    "config.json"
-  );
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return config.port || DEFAULT_PORT;
-  } catch {
-    return DEFAULT_PORT;
-  }
-}
+import {
+  getPort,
+  getPipePath,
+  ensureSocketDir,
+  clearStaleSocket
+} from "./endpoint.js";
 
 // --- Native messaging protocol (Chrome <-> this process) ---
 
@@ -87,8 +73,10 @@ function writeNativeMessage(obj) {
 // legacy role, which is today's behaviour.
 
 const TCP_PORT = getPort();
+const PIPE_PATH = getPipePath();
 
 let mode = null; // "hub" once we own the port; "legacy" while someone else does
+let pipeOwned = false; // serving clients on the pipe, independent of the port
 
 // Legacy role: we are a TCP client of whichever MCP server owns the port.
 let tcpSocket = null;
@@ -116,7 +104,7 @@ const CLASSIFY_MS = 500;
 
 // --- Hub role ---
 
-const hubServer = net.createServer((socket) => {
+function onIncomingConnection(socket) {
   // An accepted socket is unclassified until its first line arrives, and until
   // then nothing downstream has attached an 'error' listener. In Node an
   // unhandled 'error' is a thrown exception, so a peer that vanishes in that
@@ -171,7 +159,35 @@ const hubServer = net.createServer((socket) => {
     classified = false;
     rejectAsRival();
   });
-});
+}
+
+// The pipe is the real rendezvous; the port is kept only so MCP servers still
+// running older code keep working until they restart. Both feed the same
+// client table, so a mixed fleet is invisible from here.
+const pipeServer = net.createServer(onIncomingConnection);
+const hubServer = net.createServer(onIncomingConnection);
+
+async function claimPipe() {
+  ensureSocketDir();
+  await clearStaleSocket(PIPE_PATH);
+  const onErr = (err) => {
+    if (err.code === "EADDRINUSE") {
+      // Another browser's host already holds the bridge for this user. Retry
+      // slowly in case that browser goes away; meanwhile the port path below
+      // still gives us today's single-browser behaviour.
+      setTimeout(claimPipe, REJECTED_RETRY_MS);
+      return;
+    }
+    process.stderr.write(`Pipe listen failed: ${err.message}\n`);
+    setTimeout(claimPipe, RETRY_MS);
+  };
+  pipeServer.once("error", onErr);
+  pipeServer.listen(PIPE_PATH, () => {
+    pipeServer.removeListener("error", onErr);
+    pipeOwned = true;
+    process.stderr.write(`Native host owns the bridge at ${PIPE_PATH}\n`);
+  });
+}
 
 function attachClient(socket, initialBuffer) {
   const clientId = String(++clientIdCounter);
@@ -230,6 +246,7 @@ function routeFromExtension(msg) {
         if (!socket.destroyed) socket.write(line);
       } catch {}
     }
+    forwardToLegacyOwner(msg);
     return;
   }
   if (msg.id && clientRequestMap.has(msg.id)) {
@@ -243,7 +260,18 @@ function routeFromExtension(msg) {
     } catch {}
     return;
   }
-  // Unroutable: the client that asked is gone, or we never issued this id.
+  // Not an id we issued. During a rollout an older MCP server may still own the
+  // port and have its own sessions in flight; those responses are its to route,
+  // so hand them on. Ids are namespaced per owner, so this is unambiguous.
+  forwardToLegacyOwner(msg);
+}
+
+function forwardToLegacyOwner(msg) {
+  if (tcpSocket && !tcpSocket.destroyed) {
+    try {
+      tcpSocket.write(JSON.stringify(msg) + "\n");
+    } catch {}
+  }
 }
 
 // --- Claiming the port ---
@@ -562,14 +590,10 @@ process.stdin.on("data", (chunk) => {
       handleWriteTempFile(msg);
       continue;
     }
-    // Everything else is for a waiting MCP server. As the hub we route it to
-    // the one client that asked; in the legacy role we hand it to whichever
-    // MCP server owns the port and let it do the routing.
-    if (mode === "hub") {
-      routeFromExtension(msg);
-    } else if (tcpSocket && !tcpSocket.destroyed) {
-      tcpSocket.write(JSON.stringify(msg) + "\n");
-    }
+    // Everything else is for a waiting MCP server. Route by id rather than by
+    // role: ours go to the client that asked, anything else belongs to an
+    // older MCP server that still owns the port.
+    routeFromExtension(msg);
   }
 });
 
@@ -586,8 +610,12 @@ process.stdin.on("end", () => {
   try {
     hubServer.close();
   } catch {}
+  try {
+    pipeServer.close();
+  } catch {}
   process.exit(0);
 });
 
-// Take the port if we can; attach to whoever has it if we can't.
+// Own the bridge; and take the legacy port too, or attach to whoever has it.
+claimPipe();
 claimPort();

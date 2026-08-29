@@ -24,14 +24,20 @@ const HOST = path.join(HERE, "..", "native-host.js");
 const RUNTIME_HARNESS = path.join(HERE, "runtime-primary.mjs");
 
 let PORT = 18900 + Math.floor(process.uptime() * 1000) % 90;
+let PIPE = "";
+
+const pipeFor = (port) =>
+  process.platform === "win32"
+    ? `\\\\.\\pipe\\ocic-test-${process.pid}-${port}`
+    : path.join(process.env.TEMP || "/tmp", `ocic-test-${process.pid}-${port}.sock`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- Fake extension: drives native-host.js exactly as Chrome would ---
 
-function fakeExtension(port) {
+function fakeExtension(port, pipe = PIPE) {
   const proc = spawn(process.execPath, [HOST], {
-    env: { ...process.env, OCIC_PORT: String(port) },
+    env: { ...process.env, OCIC_PORT: String(port), OCIC_PIPE: pipe },
     stdio: ["pipe", "pipe", "pipe"]
   });
 
@@ -78,8 +84,10 @@ function fakeExtension(port) {
 
 // --- Fake MCP client: the wire role tool-runtime.js uses in client mode ---
 
-function fakeClient(port, name) {
-  const socket = net.createConnection(port, "127.0.0.1");
+// `endpoint` is a port number or a pipe/socket path — net.createConnection
+// takes either, which is exactly why the pipe was a cheap swap to make.
+function fakeClient(endpoint, name) {
+  const socket = net.createConnection(endpoint);
   const pending = new Map();
   const received = [];
   let idc = 0;
@@ -166,10 +174,11 @@ async function waitFor(fn, timeoutMs = 5000, label = "condition") {
 
 const results = [];
 async function test(name, fn) {
-  PORT += 1; // every test gets its own port; no cross-test interference
+  PORT += 1; // every test gets its own address pair; no cross-test interference
+  PIPE = pipeFor(PORT);
   const started = Date.now();
   try {
-    await fn(PORT);
+    await fn(PORT, PIPE);
     results.push({ name, ok: true, ms: Date.now() - started });
     console.log(`  PASS  ${name}  (${Date.now() - started}ms)`);
   } catch (err) {
@@ -322,6 +331,83 @@ await test("recording_complete fans out to every attached client", async (port) 
   ext.kill();
 });
 
+await test("clients are served over the pipe", async (port, pipe) => {
+  const ext = fakeExtension(port);
+  ext.autoRespond();
+  await waitFor(
+    async () => /owns the bridge at/.test(ext.stderrText()),
+    5000,
+    "host announces the pipe"
+  );
+  const c = fakeClient(pipe, "pipe-client");
+  await c.ready;
+  const reply = await c.call("navigate", { url: "https://example.com" });
+  assert(reply.result?.echo === "navigate", "pipe client got no usable reply");
+  assert(reply.id === "1", "id was not de-prefixed on the pipe path");
+  c.close();
+  ext.kill();
+});
+
+await test("a squatted port cannot keep sessions off the bridge", async (port, pipe) => {
+  // The #41 shape at its worst: a stale process holds the port and, being old
+  // code, will never yield it. Under the old design that stranded the machine.
+  // The pipe is a separate address it has no claim on.
+  const squatter = net.createServer((s) => s.on("error", () => {}));
+  await new Promise((r) => squatter.listen(port, "127.0.0.1", r));
+
+  const ext = fakeExtension(port);
+  ext.autoRespond();
+  await waitFor(
+    async () => /owns the bridge at/.test(ext.stderrText()),
+    5000,
+    "host owns the pipe despite the squatter"
+  );
+
+  const c = fakeClient(pipe, "unblocked");
+  await c.ready;
+  const reply = await c.call("get_page_text");
+  assert(reply.result?.echo === "get_page_text", "squatter still blocked the bridge");
+  c.close();
+  ext.kill();
+  await new Promise((r) => squatter.close(r));
+});
+
+await test("a session starting against a live host never binds the port", async (port, pipe) => {
+  // The churn test. With a host already serving, a new MCP server must join it
+  // rather than grab the port and force a handover.
+  const ext = fakeExtension(port);
+  ext.autoRespond();
+  await waitFor(
+    async () => /owns the bridge at/.test(ext.stderrText()),
+    5000,
+    "host serving"
+  );
+  // Free the legacy port so binding it would actually be possible.
+  await waitFor(async () => !(await portIsFree(port)), 5000, "host also holds the legacy port");
+
+  const session = spawn(process.execPath, [RUNTIME_HARNESS], {
+    env: { ...process.env, OCIC_PORT: String(port), OCIC_PIPE: pipe },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const err = [];
+  session.stderr.on("data", (c) => err.push(c.toString()));
+  await waitFor(
+    async () => /Connected to browser bridge via/.test(err.join("")),
+    8000,
+    "session joins the bridge"
+  );
+  assert(
+    !/Primary MCP server listening/.test(err.join("")),
+    "session bound the port instead of joining the host"
+  );
+  assert(
+    !/yielding/.test(err.join("")),
+    "a handover happened; there should have been nothing to hand over"
+  );
+  session.kill();
+  ext.kill();
+});
+
 await test("host takes the port from an incumbent MCP primary, which rejoins as a client", async (port) => {
   // Boot order the old way round: a Claude session starts while the browser is
   // down, binds the port, and is still holding it when the browser comes up.
@@ -351,7 +437,7 @@ await test("host takes the port from an incumbent MCP primary, which rejoins as 
     "host takes over"
   );
   await waitFor(
-    async () => /Connected to primary MCP server/.test(primaryErr.join("")),
+    async () => /Connected to browser bridge via/.test(primaryErr.join("")),
     8000,
     "ex-incumbent rejoins as a client"
   );
