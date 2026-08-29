@@ -1,26 +1,20 @@
 // Where the native host and the MCP servers meet.
 //
-// There are two rendezvous addresses, and they are not equal.
-//
-// The PIPE is the real one: a named pipe on Windows, a unix socket on POSIX,
-// named deterministically from the username. It is the better address for
-// three reasons. There is no number to allocate, so there is no EADDRINUSE
-// race and nothing for a stale process to squat. The OS scopes it to the user,
+// A named pipe on Windows, a unix socket on POSIX, named deterministically from
+// the username. There is no number to allocate, so there is no EADDRINUSE race
+// and nothing for a stale process to squat; and the OS scopes it to the user,
 // where a loopback TCP port is reachable by any process any local user is
-// running — every tool call in this system drives a real browser holding real
-// logged-in sessions, so that is a door worth closing. And it cannot be
-// reached from off the machine even by accident.
+// running — worth caring about, since every call across this bridge drives a
+// real browser holding real logged-in sessions.
 //
-// The PORT is kept only so the switch costs nobody an outage. The host listens
-// on both and clients prefer the pipe, so an MCP server still running older
-// code keeps working over TCP until it happens to restart. Once nothing old is
-// left the port is dead weight and can go.
+// This replaced a shared TCP port. The port is gone rather than deprecated:
+// keeping both alive meant keeping the election, the yield protocol and the
+// peer-classification sniff alive with it, which is most of what used to go
+// wrong here.
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-
-const DEFAULT_PORT = 18765;
 
 function configFile() {
   try {
@@ -33,14 +27,6 @@ function configFile() {
   } catch {
     return {};
   }
-}
-
-export function getPort() {
-  // Env override first, so a test harness can stand up a whole host + client
-  // fleet on a scratch address without disturbing the live one.
-  const fromEnv = parseInt(process.env.OCIC_PORT || "", 10);
-  if (fromEnv > 0) return fromEnv;
-  return configFile().port || DEFAULT_PORT;
 }
 
 // os.userInfo() THROWS rather than returning null when the account has no
@@ -58,6 +44,8 @@ function currentUser() {
 }
 
 export function getPipePath() {
+  // Env override first, so a test harness can stand up a whole host + client
+  // fleet on a scratch address without disturbing the live one.
   if (process.env.OCIC_PIPE) return process.env.OCIC_PIPE;
   const configured = configFile().pipe;
   if (configured) return configured;

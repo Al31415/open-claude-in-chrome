@@ -1,16 +1,15 @@
 #!/usr/bin/env node
 //
-// Ownership tests for the browser port.
+// Ownership tests for the browser bridge.
 //
-// These run the REAL native-host.js and the REAL tool-runtime.js against a
-// fake extension and fake MCP clients, on a scratch port, so the whole
-// ownership story can be exercised without Chrome and without disturbing a
-// live install on :18765.
+// These run the REAL native-host.js and the REAL tool-runtime.js against a fake
+// extension and fake MCP clients, on a scratch pipe, so the whole ownership
+// story can be exercised without Chrome and without disturbing a live install.
 //
-// The fake extension speaks Chrome's native messaging framing (4-byte LE
-// length + JSON) over the host's stdio, which is the only contract the real
-// extension has with the host — so a pass here means background.js would be
-// equally happy, and no extension reload is involved.
+// The fake extension speaks Chrome's native messaging framing (4-byte LE length
+// + JSON) over the host's stdio, which is the only contract the real extension
+// has with the host — so a pass here means background.js would be equally
+// happy, and no extension reload is involved.
 //
 // Run: node host/test/ownership.test.mjs
 
@@ -21,23 +20,23 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const HOST = path.join(HERE, "..", "native-host.js");
-const RUNTIME_HARNESS = path.join(HERE, "runtime-primary.mjs");
+const SESSION = path.join(HERE, "runtime-client.mjs");
 
-let PORT = 18900 + Math.floor(process.uptime() * 1000) % 90;
+let seq = 0;
 let PIPE = "";
 
-const pipeFor = (port) =>
+const pipeFor = (n) =>
   process.platform === "win32"
-    ? `\\\\.\\pipe\\ocic-test-${process.pid}-${port}`
-    : path.join(process.env.TEMP || "/tmp", `ocic-test-${process.pid}-${port}.sock`);
+    ? `\\\\.\\pipe\\ocic-test-${process.pid}-${n}`
+    : path.join(process.env.TMPDIR || "/tmp", `ocic-test-${process.pid}-${n}.sock`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- Fake extension: drives native-host.js exactly as Chrome would ---
 
-function fakeExtension(port, pipe = PIPE) {
+function fakeExtension(pipe = PIPE) {
   const proc = spawn(process.execPath, [HOST], {
-    env: { ...process.env, OCIC_PORT: String(port), OCIC_PIPE: pipe },
+    env: { ...process.env, OCIC_PIPE: pipe },
     stdio: ["pipe", "pipe", "pipe"]
   });
 
@@ -82,12 +81,10 @@ function fakeExtension(port, pipe = PIPE) {
   };
 }
 
-// --- Fake MCP client: the wire role tool-runtime.js uses in client mode ---
+// --- Fake MCP client: the wire role tool-runtime.js plays ---
 
-// `endpoint` is a port number or a pipe/socket path — net.createConnection
-// takes either, which is exactly why the pipe was a cheap swap to make.
-function fakeClient(endpoint, name) {
-  const socket = net.createConnection(endpoint);
+function fakeClient(pipe, name) {
+  const socket = net.createConnection(pipe);
   const pending = new Map();
   const received = [];
   let idc = 0;
@@ -113,9 +110,8 @@ function fakeClient(endpoint, name) {
       }
       received.push(msg);
       if (msg.id && pending.has(msg.id)) {
-        const { resolve } = pending.get(msg.id);
+        pending.get(msg.id)(msg);
         pending.delete(msg.id);
-        resolve(msg);
       }
     }
   });
@@ -138,7 +134,7 @@ function fakeClient(endpoint, name) {
         JSON.stringify({ id, type: "tool_request", tool, args }) + "\n"
       );
       return new Promise((resolve, reject) => {
-        pending.set(id, { resolve });
+        pending.set(id, resolve);
         setTimeout(() => {
           if (pending.has(id)) {
             pending.delete(id);
@@ -153,11 +149,18 @@ function fakeClient(endpoint, name) {
   };
 }
 
-function portIsFree(port) {
+// Is anyone serving the bridge? Only a live listener accepts, so this cannot be
+// fooled by a leftover socket path.
+function bridgeIsHeld(pipe) {
   return new Promise((resolve) => {
-    const s = net.createServer();
-    s.once("error", () => resolve(false));
-    s.listen(port, "127.0.0.1", () => s.close(() => resolve(true)));
+    const probe = net.createConnection(pipe);
+    const done = (v) => {
+      probe.destroy();
+      resolve(v);
+    };
+    probe.on("connect", () => done(true));
+    probe.on("error", () => done(false));
+    setTimeout(() => done(false), 500);
   });
 }
 
@@ -174,15 +177,14 @@ async function waitFor(fn, timeoutMs = 5000, label = "condition") {
 
 const results = [];
 async function test(name, fn) {
-  PORT += 1; // every test gets its own address pair; no cross-test interference
-  PIPE = pipeFor(PORT);
+  PIPE = pipeFor(++seq); // every test gets its own address
   const started = Date.now();
   try {
-    await fn(PORT, PIPE);
-    results.push({ name, ok: true, ms: Date.now() - started });
+    await fn(PIPE);
+    results.push({ name, ok: true });
     console.log(`  PASS  ${name}  (${Date.now() - started}ms)`);
   } catch (err) {
-    results.push({ name, ok: false, ms: Date.now() - started, err: err.message });
+    results.push({ name, ok: false, err: err.message });
     console.log(`  FAIL  ${name}  — ${err.message}`);
   }
 }
@@ -193,25 +195,25 @@ function assert(cond, msg) {
 
 // ---------------------------------------------------------------------------
 
-console.log("\nBrowser-port ownership\n");
+console.log("\nBrowser-bridge ownership\n");
 
-await test("host claims a free port and reports itself as owner", async (port) => {
-  const ext = fakeExtension(port);
+await test("host claims a free bridge and reports itself as owner", async (pipe) => {
+  const ext = fakeExtension();
   await waitFor(
-    async () => /owns the browser port/.test(ext.stderrText()),
+    async () => /owns the bridge at/.test(ext.stderrText()),
     5000,
     "host announces ownership"
   );
-  assert(!(await portIsFree(port)), "port should be held by the host");
+  assert(await bridgeIsHeld(pipe), "bridge should be served by the host");
   ext.kill();
 });
 
-await test("a client's request reaches the extension and the reply comes back", async (port) => {
-  const ext = fakeExtension(port);
+await test("a client's request reaches the extension and the reply comes back", async (pipe) => {
+  const ext = fakeExtension();
   ext.autoRespond();
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host binds");
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
 
-  const c = fakeClient(port, "c1");
+  const c = fakeClient(pipe, "c1");
   await c.ready;
   const reply = await c.call("navigate", { url: "https://example.com" });
   assert(reply.result?.echo === "navigate", `unexpected reply ${JSON.stringify(reply)}`);
@@ -220,14 +222,14 @@ await test("a client's request reaches the extension and the reply comes back", 
   ext.kill();
 });
 
-await test("concurrent clients each get only their own responses", async (port) => {
-  const ext = fakeExtension(port);
+await test("concurrent clients each get only their own responses", async (pipe) => {
+  const ext = fakeExtension();
   // Echo the tool name back so a crossed wire is detectable.
   ext.autoRespond((m) => ({ forTool: m.tool }));
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host binds");
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
 
   const clients = [];
-  for (let i = 0; i < 8; i++) clients.push(fakeClient(port, `c${i}`));
+  for (let i = 0; i < 8; i++) clients.push(fakeClient(pipe, `c${i}`));
   await Promise.all(clients.map((c) => c.ready));
 
   const replies = await Promise.all(
@@ -243,23 +245,23 @@ await test("concurrent clients each get only their own responses", async (port) 
   ext.kill();
 });
 
-await test("a client that vanishes mid-request does not take the hub down", async (port) => {
-  const ext = fakeExtension(port);
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host binds");
+await test("a client that vanishes mid-request does not take the host down", async (pipe) => {
+  const ext = fakeExtension();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
 
-  const survivor = fakeClient(port, "survivor");
+  const survivor = fakeClient(pipe, "survivor");
   await survivor.ready;
 
   // 20 clients that connect and are destroyed without a clean close — the
   // exact shape that killed the old primary with an unhandled ECONNRESET.
   for (let i = 0; i < 20; i++) {
-    const doomed = fakeClient(port, `doomed${i}`);
+    const doomed = fakeClient(pipe, `doomed${i}`);
     doomed.call("computer", {}).catch(() => {});
     doomed.hardKill();
   }
   // Also connect-and-die without ever saying hello, inside the classify window.
   for (let i = 0; i < 20; i++) {
-    const silent = net.createConnection(port, "127.0.0.1");
+    const silent = net.createConnection(pipe);
     silent.on("error", () => {});
     silent.on("connect", () => silent.destroy());
   }
@@ -270,34 +272,34 @@ await test("a client that vanishes mid-request does not take the hub down", asyn
 
   ext.autoRespond();
   const reply = await survivor.call("still_alive");
-  assert(reply.result?.echo === "still_alive", "hub stopped serving after the churn");
+  assert(reply.result?.echo === "still_alive", "host stopped serving after the churn");
   survivor.close();
   ext.kill();
 });
 
-await test("orphaned clients cannot block a fresh host from owning the port", async (port) => {
+await test("stale clients cannot block a fresh host from owning the bridge", async (pipe) => {
   // The #41 scenario: sessions died long ago but their MCP processes live on.
   // Under host-owned ownership they are only clients, so they hold nothing.
-  const ext = fakeExtension(port);
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host binds");
-  const orphans = [];
-  for (let i = 0; i < 30; i++) orphans.push(fakeClient(port, `orphan${i}`));
-  await Promise.all(orphans.map((o) => o.ready));
+  const ext = fakeExtension();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
+  const stale = [];
+  for (let i = 0; i < 30; i++) stale.push(fakeClient(pipe, `stale${i}`));
+  await Promise.all(stale.map((o) => o.ready));
 
-  // Browser restarts: old host goes away, a new one starts with the orphans
-  // still attached and still holding their sockets open.
+  // Browser restarts: old host goes away, a new one starts with the stale
+  // clients still attached and still holding their sockets open.
   ext.disconnect();
-  await waitFor(async () => await portIsFree(port), 5000, "old host releases port");
+  await waitFor(async () => !(await bridgeIsHeld(pipe)), 5000, "old host releases");
 
-  const ext2 = fakeExtension(port);
+  const ext2 = fakeExtension();
   ext2.autoRespond();
   await waitFor(
-    async () => /owns the browser port/.test(ext2.stderrText()),
+    async () => /owns the bridge at/.test(ext2.stderrText()),
     5000,
-    "new host claims the port despite 30 orphans"
+    "new host claims the bridge despite 30 stale clients"
   );
 
-  const fresh = fakeClient(port, "fresh");
+  const fresh = fakeClient(pipe, "fresh");
   await fresh.ready;
   const reply = await fresh.call("navigate");
   assert(reply.result?.echo === "navigate", "new host not serving");
@@ -305,17 +307,17 @@ await test("orphaned clients cannot block a fresh host from owning the port", as
   ext2.kill();
 });
 
-await test("host releases the port the moment the extension disconnects", async (port) => {
-  const ext = fakeExtension(port);
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host binds");
+await test("host releases the bridge the moment the extension disconnects", async (pipe) => {
+  const ext = fakeExtension();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
   ext.disconnect();
-  await waitFor(async () => await portIsFree(port), 5000, "port freed on disconnect");
+  await waitFor(async () => !(await bridgeIsHeld(pipe)), 5000, "bridge freed on disconnect");
 });
 
-await test("recording_complete fans out to every attached client", async (port) => {
-  const ext = fakeExtension(port);
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host binds");
-  const clients = [fakeClient(port, "a"), fakeClient(port, "b"), fakeClient(port, "c")];
+await test("recording_complete fans out to every attached client", async (pipe) => {
+  const ext = fakeExtension();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
+  const clients = [fakeClient(pipe, "a"), fakeClient(pipe, "b"), fakeClient(pipe, "c")];
   await Promise.all(clients.map((c) => c.ready));
   await sleep(100);
 
@@ -331,97 +333,65 @@ await test("recording_complete fans out to every attached client", async (port) 
   ext.kill();
 });
 
-await test("clients are served over the pipe", async (port, pipe) => {
-  const ext = fakeExtension(port);
+await test("a real session joins the host instead of owning anything", async (pipe) => {
+  const ext = fakeExtension();
   ext.autoRespond();
-  await waitFor(
-    async () => /owns the bridge at/.test(ext.stderrText()),
-    5000,
-    "host announces the pipe"
-  );
-  const c = fakeClient(pipe, "pipe-client");
-  await c.ready;
-  const reply = await c.call("navigate", { url: "https://example.com" });
-  assert(reply.result?.echo === "navigate", "pipe client got no usable reply");
-  assert(reply.id === "1", "id was not de-prefixed on the pipe path");
-  c.close();
-  ext.kill();
-});
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
 
-await test("a squatted port cannot keep sessions off the bridge", async (port, pipe) => {
-  // The #41 shape at its worst: a stale process holds the port and, being old
-  // code, will never yield it. Under the old design that stranded the machine.
-  // The pipe is a separate address it has no claim on.
-  const squatter = net.createServer((s) => s.on("error", () => {}));
-  await new Promise((r) => squatter.listen(port, "127.0.0.1", r));
-
-  const ext = fakeExtension(port);
-  ext.autoRespond();
-  await waitFor(
-    async () => /owns the bridge at/.test(ext.stderrText()),
-    5000,
-    "host owns the pipe despite the squatter"
-  );
-
-  const c = fakeClient(pipe, "unblocked");
-  await c.ready;
-  const reply = await c.call("get_page_text");
-  assert(reply.result?.echo === "get_page_text", "squatter still blocked the bridge");
-  c.close();
-  ext.kill();
-  await new Promise((r) => squatter.close(r));
-});
-
-await test("a session starting against a live host never binds the port", async (port, pipe) => {
-  // The churn test. With a host already serving, a new MCP server must join it
-  // rather than grab the port and force a handover.
-  const ext = fakeExtension(port);
-  ext.autoRespond();
-  await waitFor(
-    async () => /owns the bridge at/.test(ext.stderrText()),
-    5000,
-    "host serving"
-  );
-  // Free the legacy port so binding it would actually be possible.
-  await waitFor(async () => !(await portIsFree(port)), 5000, "host also holds the legacy port");
-
-  const session = spawn(process.execPath, [RUNTIME_HARNESS], {
-    env: { ...process.env, OCIC_PORT: String(port), OCIC_PIPE: pipe },
+  const session = spawn(process.execPath, [SESSION], {
+    env: { ...process.env, OCIC_PIPE: pipe },
     stdio: ["ignore", "pipe", "pipe"]
   });
   const err = [];
   session.stderr.on("data", (c) => err.push(c.toString()));
   await waitFor(
-    async () => /Connected to browser bridge via/.test(err.join("")),
+    async () => /Joined the browser bridge/.test(err.join("")),
     8000,
     "session joins the bridge"
-  );
-  assert(
-    !/Primary MCP server listening/.test(err.join("")),
-    "session bound the port instead of joining the host"
-  );
-  assert(
-    !/yielding/.test(err.join("")),
-    "a handover happened; there should have been nothing to hand over"
   );
   session.kill();
   ext.kill();
 });
 
-await test("a waiting host takes over promptly when the owner releases", async (port, pipe) => {
+await test("a session survives the host being respawned under it", async (pipe) => {
+  // Chrome recycles the service worker routinely, which takes the host with it.
+  // A session must reconnect on its own rather than needing a restart.
+  const ext = fakeExtension();
+  ext.autoRespond();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host serving");
+
+  const c = fakeClient(pipe, "before");
+  await c.ready;
+  assert((await c.call("navigate")).result?.echo === "navigate", "not serving before");
+
+  ext.disconnect();
+  await waitFor(async () => !(await bridgeIsHeld(pipe)), 5000, "host gone");
+
+  const ext2 = fakeExtension();
+  ext2.autoRespond();
+  await waitFor(async () => await bridgeIsHeld(pipe), 5000, "host back");
+
+  const c2 = fakeClient(pipe, "after");
+  await c2.ready;
+  assert((await c2.call("navigate")).result?.echo === "navigate", "not serving after respawn");
+  c2.close();
+  ext2.kill();
+});
+
+await test("a waiting host takes over promptly when the owner releases", async (pipe) => {
   // This is the switch_browser hand-off. background.js drops the outgoing
   // browser's host and suspends reconnect for SWITCH_RELEASE_MS (15s); the
   // incoming browser only gets the bridge if it probes inside that window. A
   // host that backed off to a 15s retry on its first EADDRINUSE would land
   // there by luck, so the reclaim has to be well inside the window.
-  const owner = fakeExtension(port, pipe);
+  const owner = fakeExtension();
   await waitFor(
     async () => /owns the bridge at/.test(owner.stderrText()),
     5000,
     "first host owns the bridge"
   );
 
-  const waiting = fakeExtension(port, pipe);
+  const waiting = fakeExtension();
   await sleep(2500); // long enough that a 15s backoff would still be sleeping
   assert(
     !/owns the bridge at/.test(waiting.stderrText()),
@@ -445,52 +415,6 @@ await test("a waiting host takes over promptly when the owner releases", async (
   assert(reply.result?.echo === "navigate", "new owner not serving after hand-off");
   c.close();
   waiting.kill();
-});
-
-await test("host takes the port from an incumbent MCP primary, which rejoins as a client", async (port, pipe) => {
-  // Boot order the old way round: a Claude session starts while the browser is
-  // down, binds the port, and is still holding it when the browser comes up.
-  const primary = spawn(process.execPath, [RUNTIME_HARNESS], {
-    // Must carry the scratch pipe too, or it finds the machine's real host and
-    // sensibly joins that instead of binding anything.
-    env: { ...process.env, OCIC_PORT: String(port), OCIC_PIPE: pipe },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-  const primaryErr = [];
-  primary.stderr.on("data", (c) => primaryErr.push(c.toString()));
-  await waitFor(
-    async () => /Primary MCP server listening/.test(primaryErr.join("")),
-    5000,
-    "incumbent binds first"
-  );
-
-  const ext = fakeExtension(port);
-  ext.autoRespond();
-
-  await waitFor(
-    async () => /yielding, it is the better owner/.test(primaryErr.join("")),
-    8000,
-    "incumbent yields"
-  );
-  await waitFor(
-    async () => /owns the browser port|now owns the browser port/.test(ext.stderrText()),
-    8000,
-    "host takes over"
-  );
-  await waitFor(
-    async () => /Connected to browser bridge via/.test(primaryErr.join("")),
-    8000,
-    "ex-incumbent rejoins as a client"
-  );
-
-  // And the handover left a working system.
-  const c = fakeClient(port, "after-handover");
-  await c.ready;
-  const reply = await c.call("navigate");
-  assert(reply.result?.echo === "navigate", "hub not serving after handover");
-  c.close();
-  ext.kill();
-  primary.kill();
 });
 
 // ---------------------------------------------------------------------------
