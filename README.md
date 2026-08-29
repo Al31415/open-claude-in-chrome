@@ -580,22 +580,30 @@ The MCP server started but the native host hasn't connected. Try:
 
 ### Tools fail immediately after reconnect
 
-Stale MCP server processes from previous sessions may be holding the port. Fix:
+This used to mean a stale MCP server from an earlier session was holding the
+shared port, and the fix was to `pkill` them. That is no longer possible: the
+native host owns the bridge, sessions only connect to it, and a leftover
+process holds nothing anyone needs.
 
-```bash
-pkill -f "node.*mcp-server"
-```
+If tools still fail, the browser side is the place to look — see "Browser
+extension is not connected" above.
 
-Then `/mcp` in Claude Code to reconnect. The fresh server will bind the port and accept the native host connection.
+### Changing the rendezvous
 
-### Port conflict
+Sessions and the native host meet on a named pipe (`\\.\pipe\open-claude-in-chrome-<user>`
+on Windows, a unix socket under a 0700 directory on macOS and Linux). The name
+is derived from your username, so nothing needs configuring and two users on the
+same machine cannot collide.
 
-Default port is 18765. To change:
+To override it — normally only useful for running an isolated second instance:
 1. Create `~/.config/open-claude-in-chrome/config.json`:
    ```json
-   { "port": 19000 }
+   { "pipe": "/tmp/my-own-bridge.sock" }
    ```
-2. Restart browser and Claude Code
+2. Restart the browser and Claude Code
+
+`OCIC_PIPE` does the same thing per-process, which is how the test suite stands
+up a whole host + client fleet without touching a live install.
 
 ## License
 

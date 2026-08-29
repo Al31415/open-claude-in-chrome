@@ -11,6 +11,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import { watchParent } from "../parent-watch.js";
 
 import {
   init as runtimeInit,
@@ -471,5 +472,9 @@ export function installCleanup({ wranglerProc, callbackServer, upstreamClient })
   // because wrangler + the callback HTTP server + the upstream client all
   // keep it alive. Tear down on EOF.
   process.stdin.on("end", () => { cleanup(); process.exit(0); });
+  // ...and when EOF never comes because someone else holds a copy of the write
+  // end, watch the parent directly. This server keeps a wrangler tree alive, so
+  // an undetected orphan here costs several processes, not one.
+  watchParent(() => { cleanup(); process.exit(0); });
   return cleanup;
 }

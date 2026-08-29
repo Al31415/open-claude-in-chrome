@@ -2,30 +2,20 @@
 
 // Native Messaging Host for Open Claude in Chrome extension.
 // Launched by Chrome when the extension calls connectNative().
-// Bridges between Chrome native messaging (stdin/stdout, 4-byte LE length prefix + JSON)
-// and the MCP server (TCP on localhost).
+// Bridges between Chrome native messaging (stdin/stdout, 4-byte LE length prefix
+// + JSON) and the Claude Code sessions attached to the bridge it owns.
 
 import net from "node:net";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 
-const DEFAULT_PORT = 18765;
-
-function getPort() {
-  const configPath = path.join(
-    os.homedir(),
-    ".config",
-    "open-claude-in-chrome",
-    "config.json"
-  );
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return config.port || DEFAULT_PORT;
-  } catch {
-    return DEFAULT_PORT;
-  }
-}
+import {
+  getPipePath,
+  ensureSocketDir,
+  clearStaleSocket,
+  secureSocket
+} from "./endpoint.js";
 
 // --- Native messaging protocol (Chrome <-> this process) ---
 
@@ -54,79 +44,195 @@ function writeNativeMessage(obj) {
   process.stdout.write(Buffer.concat([header, buf]));
 }
 
-// --- TCP connection to MCP server ---
+// --- Who owns the bridge ---
+//
+// Exactly one process has to own the rendezvous, because native messaging gives
+// the extension exactly one host, and every Claude Code session on the machine
+// has to reach that one browser through it. The only real question is WHICH
+// process owns it.
+//
+// It used to be whichever MCP server bound :18765 first — an ordinary Claude
+// Code session, picked for no reason but boot order, holding the browser link
+// on behalf of every other session on the box. That made the link's lifetime an
+// accident: it ended when an unrelated session exited, and a stale server left
+// behind by a session that died days ago was just as eligible to win the race
+// as a live one (#36, #41).
+//
+// This process is the principled owner. Chrome starts it when the extension
+// connects and kills it when the extension goes away, so its lifetime already
+// IS the browser link's lifetime — and the extension already supervises it,
+// reconnecting 250ms after onDisconnect (background.js). Owning the rendezvous
+// here deletes the election entirely and demotes a leaked MCP server to
+// harmless: it holds nothing anyone else needs.
 
-let tcpSocket = null;
-let tcpBuffer = Buffer.alloc(0);
-let reconnectTimer = null;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 60; // 30 seconds at 500ms intervals
-const TCP_PORT = getPort();
+const PIPE_PATH = getPipePath();
 
-// When the primary rejects us because ANOTHER browser's host already holds
-// the native slot, retry slowly (15s) instead of hammering every 1.5s: with
-// two browsers running OCIC, the loser otherwise reconnect-spams the primary
-// and makes browser selection flap across primary restarts.
-let rejectedByPrimary = false;
+let lastExtensionTraffic = Date.now();
+let heartbeatsSeen = 0;
+
+// MCP servers connect to us and are multiplexed onto the single native
+// messaging channel to the extension.
+const clients = new Map(); // clientId -> socket
+const clientRequestMap = new Map(); // prefixed id -> { clientId, originalId }
+let clientIdCounter = 0;
+
 const RETRY_MS = 1500;
 const REJECTED_RETRY_MS = 15000;
+// A peer that has connected but not yet said what it is. A real client sends
+// `client_hello` immediately, so silence past this window is not one.
+const CLASSIFY_MS = 500;
 
-function connectTcp() {
-  if (tcpSocket) return;
+function onIncomingConnection(socket) {
+  // An accepted socket is unclassified until its first line arrives, and until
+  // then nothing downstream has attached an 'error' listener. In Node an
+  // unhandled 'error' is a thrown exception, so a peer that vanishes in that
+  // window — a client MCP process killed mid-handshake, which is routine —
+  // would take the host down, and with it every session's browser link. This is
+  // the same failure that cost the primary its life in c0a09a2.
+  socket.on("error", () => socket.destroy());
 
-  tcpSocket = new net.Socket();
+  let buffer = Buffer.alloc(0);
+  let classified = false;
 
-  tcpSocket.connect(TCP_PORT, "127.0.0.1", () => {
-    reconnectAttempts = 0;
-    if (reconnectTimer) {
-      clearInterval(reconnectTimer);
-      reconnectTimer = null;
+  const classifyTimer = setTimeout(() => {
+    if (!classified) {
+      classified = true;
+      socket.destroy();
     }
-  });
+  }, CLASSIFY_MS);
+  socket.on("close", () => clearTimeout(classifyTimer));
 
-  tcpSocket.on("data", (chunk) => {
-    // newline-delimited JSON from MCP server
-    tcpBuffer = Buffer.concat([tcpBuffer, chunk]);
-    let newlineIdx;
-    while ((newlineIdx = tcpBuffer.indexOf(10)) !== -1) {
-      const line = tcpBuffer.subarray(0, newlineIdx).toString("utf-8").trim();
-      tcpBuffer = tcpBuffer.subarray(newlineIdx + 1);
+  socket.on("data", function onEarlyData(chunk) {
+    if (classified) return;
+    buffer = Buffer.concat([buffer, chunk]);
+    const idx = buffer.indexOf(10);
+    if (idx === -1) return;
+
+    const firstLine = buffer.subarray(0, idx).toString("utf-8").trim();
+    const rest = buffer.subarray(idx + 1);
+    let msg = null;
+    try {
+      msg = JSON.parse(firstLine);
+    } catch {}
+
+    classified = true;
+    clearTimeout(classifyTimer);
+    socket.removeListener("data", onEarlyData);
+
+    if (msg && msg.type === "client_hello") {
+      attachClient(socket, rest);
+      return;
+    }
+    socket.destroy();
+  });
+}
+
+const pipeServer = net.createServer(onIncomingConnection);
+
+// How long we keep probing quickly before settling into the slow lane. This has
+// to comfortably exceed background.js's SWITCH_RELEASE_MS (15s): switch_browser
+// hands over by having the outgoing browser drop its host and suspend reconnect
+// for that window, and the incoming browser only gets the bridge if it happens
+// to probe while the window is open. Backing off to 15s immediately would make
+// a hand-off land inside the window mostly by luck.
+const FAST_CLAIM_WINDOW_MS = 40_000;
+const claimingSince = Date.now();
+
+async function claimPipe() {
+  ensureSocketDir();
+  await clearStaleSocket(PIPE_PATH);
+  const onErr = (err) => {
+    if (err.code === "EADDRINUSE") {
+      // Another browser's host holds the bridge for this user. Probe often at
+      // first so a hand-off is picked up promptly, then drop to the slow lane
+      // so two idle browsers are not polling each other forever.
+      const fast = Date.now() - claimingSince < FAST_CLAIM_WINDOW_MS;
+      setTimeout(claimPipe, fast ? RETRY_MS : REJECTED_RETRY_MS);
+      return;
+    }
+    process.stderr.write(`Bridge listen failed: ${err.message}\n`);
+    setTimeout(claimPipe, RETRY_MS);
+  };
+  pipeServer.once("error", onErr);
+  pipeServer.listen(PIPE_PATH, () => {
+    pipeServer.removeListener("error", onErr);
+    process.stderr.write(`Native host owns the bridge at ${PIPE_PATH}\n`);
+  });
+}
+
+function attachClient(socket, initialBuffer) {
+  const clientId = String(++clientIdCounter);
+  clients.set(clientId, socket);
+  process.stderr.write(`MCP client ${clientId} attached (${clients.size} total)\n`);
+  socket.write(JSON.stringify({ type: "client_ack", clientId }) + "\n");
+
+  let buffer = initialBuffer;
+
+  function pump() {
+    let idx;
+    while ((idx = buffer.indexOf(10)) !== -1) {
+      const line = buffer.subarray(0, idx).toString("utf-8").trim();
+      buffer = buffer.subarray(idx + 1);
       if (!line) continue;
       try {
         const msg = JSON.parse(line);
-        if (msg.type === "error" && /another browser profile/i.test(msg.error || "")) {
-          // The primary already has a browser attached; we are the loser of
-          // the slot. Back off hard instead of hammering every 1.5s.
-          rejectedByPrimary = true;
+        if (msg.type === "tool_request" && msg.id) {
+          // Namespace the id so concurrent sessions cannot collide, and so a
+          // response can be routed back to the one client that asked.
+          const prefixedId = `h${clientId}_${msg.id}`;
+          clientRequestMap.set(prefixedId, { clientId, originalId: msg.id });
+          writeNativeMessage({ ...msg, id: prefixedId });
         }
-        // Forward to extension via native messaging
-        writeNativeMessage(msg);
       } catch {
         // skip malformed
       }
     }
-  });
+  }
 
-  tcpSocket.on("error", () => {
-    tcpSocket = null;
+  pump();
+  socket.on("data", (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    pump();
   });
-
-  tcpSocket.on("close", () => {
-    tcpSocket = null;
-    if (!reconnectTimer) {
-      // Keep retrying indefinitely — do NOT exit when the MCP server is gone.
-      // The native host also writes recording bundles to disk (save_recording),
-      // which must work with no Claude session connected. Lifetime is tied to
-      // the extension (stdin), which ends on browser/extension shutdown below.
-      // Rejected-by-primary (another browser holds the slot): slow lane, and
-      // re-probe occasionally in case the winner's browser goes away.
-      const interval = rejectedByPrimary ? REJECTED_RETRY_MS : RETRY_MS;
-      rejectedByPrimary = false;
-      reconnectTimer = setInterval(() => {
-        if (!tcpSocket) connectTcp();
-      }, interval);
+  socket.on("close", () => {
+    clients.delete(clientId);
+    for (const [prefixedId, info] of clientRequestMap) {
+      if (info.clientId === clientId) clientRequestMap.delete(prefixedId);
     }
+    process.stderr.write(`MCP client ${clientId} detached (${clients.size} left)\n`);
   });
+}
+
+// Route one extension-originated message to whoever is waiting for it.
+function routeFromExtension(msg) {
+  // Liveness ping from the service worker. Nothing downstream needs it, but
+  // its rhythm is what the deaf-extension watchdog below keys off.
+  if (msg.type === "heartbeat") {
+    heartbeatsSeen++;
+    return;
+  }
+  if (msg.type === "recording_complete") {
+    // Unsolicited: any attached session may be the one holding the Claude
+    // channel, so every client gets a copy.
+    const line = JSON.stringify(msg) + "\n";
+    for (const socket of clients.values()) {
+      try {
+        if (!socket.destroyed) socket.write(line);
+      } catch {}
+    }
+    return;
+  }
+  if (msg.id && clientRequestMap.has(msg.id)) {
+    const { clientId, originalId } = clientRequestMap.get(msg.id);
+    clientRequestMap.delete(msg.id);
+    const socket = clients.get(clientId);
+    try {
+      if (socket && !socket.destroyed) {
+        socket.write(JSON.stringify({ ...msg, id: originalId }) + "\n");
+      }
+    } catch {}
+  }
+  // Anything else: the client that asked is gone, or we never issued this id.
 }
 
 // --- Recording bundle write ---
@@ -276,11 +382,12 @@ function handleWriteTempFile(msg) {
   }
 }
 
-// --- Main: bridge stdin (from extension) <-> TCP (to MCP server) ---
+// --- Main: bridge stdin (from extension) <-> the attached MCP clients ---
 
 let stdinBuffer = Buffer.alloc(0);
 
 process.stdin.on("data", (chunk) => {
+  lastExtensionTraffic = Date.now();
   stdinBuffer = Buffer.concat([stdinBuffer, chunk]);
   const { messages, remainder } = readNativeMessage(stdinBuffer);
   stdinBuffer = remainder;
@@ -307,18 +414,52 @@ process.stdin.on("data", (chunk) => {
       handleWriteTempFile(msg);
       continue;
     }
-    // Forward everything else to the MCP server via TCP.
-    if (tcpSocket && !tcpSocket.destroyed) {
-      tcpSocket.write(JSON.stringify(msg) + "\n");
-    }
+    // Everything else is a reply for a waiting MCP client; route it by id.
+    routeFromExtension(msg);
   }
 });
 
 process.stdin.on("end", () => {
-  // Extension disconnected
-  if (tcpSocket) tcpSocket.destroy();
+  // Extension disconnected. Drop the bridge immediately rather than lingering:
+  // with no extension there is no browser link to own, and holding the pipe
+  // would stop the host Chrome spawns next from claiming it.
+  for (const socket of clients.values()) {
+    try {
+      socket.destroy();
+    } catch {}
+  }
+  try {
+    pipeServer.close();
+  } catch {}
   process.exit(0);
 });
 
-// Start TCP connection
-connectTcp();
+// --- Deaf-extension watchdog ---
+//
+// The worst failure this bridge has is not dying, it is going deaf: still
+// holding the rendezvous, still accepting connections, never answering. Nothing
+// recovers from that on its own, because every mechanism we have keys off the
+// owner being GONE. Dying is the recoverable state — Chrome notices, respawns
+// us, and clients reconnect — so if we cannot reach the extension any more, the
+// useful thing to do is stop existing.
+//
+// The signal is already there: background.js posts a heartbeat every ~15s. Long
+// silence means the service worker is wedged or gone.
+//
+// Armed only after we have actually seen heartbeats. An extension too old to
+// send them would otherwise look permanently deaf, and we would exit-loop —
+// which is why this is safe to ship ahead of any extension change.
+const SILENCE_LIMIT_MS = 60_000;
+
+setInterval(() => {
+  if (heartbeatsSeen < 2) return; // never saw a heartbeat: not our signal to use
+  const silentFor = Date.now() - lastExtensionTraffic;
+  if (silentFor < SILENCE_LIMIT_MS) return;
+  process.stderr.write(
+    `No word from the extension for ${Math.round(silentFor / 1000)}s — exiting so ` +
+      `a fresh host can take the bridge.\n`
+  );
+  process.exit(0);
+}, 15_000).unref();
+
+claimPipe();

@@ -1,53 +1,57 @@
 // Shared runtime for open-claude-in-chrome tools.
 //
-// Owns the TCP port and the native-host connection, transparently runs in
-// primary or client mode (so multiple processes can share one extension),
-// and exposes a single `callTool(name, args)` entry point.
+// Joins the browser bridge as a client and exposes a single
+// `callTool(name, args)` entry point. The bridge is owned by the native host,
+// which Chrome starts and stops with the extension, so this process never has
+// to own anything, elect anything, or care who else is attached.
+//
+// It used to be far more than this: every consumer raced to bind a TCP port,
+// and the winner multiplexed all the others through itself. That made an
+// ordinary Claude Code session load-bearing for the whole machine. All of it —
+// the election, the yield protocol, the peer-classification sniff, the
+// self-promotion path, the pidfile — existed to manage a role nobody should
+// have had, and went away with it.
 //
 // This used to live inline in mcp-server.js; it's extracted so that other
 // in-process consumers (the codemode + hybrid servers) can call tools
 // without going through a child mcp-server.js + stdio MCP roundtrip.
 
 import net from "node:net";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
-const DEFAULT_PORT = 18765;
+import { getPipePath } from "./endpoint.js";
+import { noteActivity } from "./parent-watch.js";
 
-function getPort() {
-  const configPath = path.join(
-    os.homedir(),
-    ".config",
-    "open-claude-in-chrome",
-    "config.json"
-  );
-  try {
-    const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    return config.port || DEFAULT_PORT;
-  } catch {
-    return DEFAULT_PORT;
-  }
-}
+const PIPE_PATH = getPipePath();
 
-const TCP_PORT = getPort();
+const REQUEST_TIMEOUT_MS = 60_000;
+// The host dies and respawns whenever Chrome recycles the service worker, and
+// background.js reconnects 250ms later. A call landing in that window should
+// wait for the bridge to come back rather than fail.
+const LINK_GRACE_MS = 5_000;
+const RECONNECT_MS = 500;
 
-let mode = "primary"; // or "client"
 let started = false;
+let socket = null;
+let readBuffer = Buffer.alloc(0);
+let reconnectTimer = null;
+let shuttingDown = false;
+let requestIdCounter = 0;
 
-let nativeHostSocket = null;
-const pendingRequests = new Map(); // id -> { resolve, reject, timer, tool, args }
+const pendingRequests = new Map(); // id -> { resolve, reject, timer, sent }
 
-// Returned when the native host socket closes with a request still in flight.
-// Deliberately does NOT claim the action failed: the request may have reached
-// the browser and run, with only the response lost. The wording has to leave
-// the agent able to act — verify, then decide — rather than blindly retry.
+// Returned when the bridge drops with a request still in flight. Deliberately
+// does NOT claim the action failed: the request may have reached the browser
+// and run, with only the response lost. The wording has to leave the agent able
+// to act — verify, then decide — rather than blindly retry.
 const HOST_DROPPED_ERROR =
   "Browser connection dropped after the request was sent, so its result is unknown. " +
   "The action may have ALREADY taken effect in the browser. Do not blindly retry: " +
   "check the current page state first (e.g. take a screenshot or read the page), " +
   "then repeat the action only if it did not happen.";
-let requestIdCounter = 0;
+
+const NO_BRIDGE_ERROR =
+  "Browser extension is not connected. Make sure a supported Chromium browser " +
+  "is running with the Open Claude in Chrome extension installed and enabled.";
 
 // Unsolicited upstream events from the extension (not tool responses): the
 // imitation-learning recorder posts { type: "recording_complete", ... } when
@@ -65,297 +69,33 @@ function emitRecordingEvent(msg) {
     } catch {}
   }
 }
-// The channel-enabled server may be running as a CLIENT (another OCIC MCP
-// server owns the port as primary). The native host only talks to the primary,
-// so the primary must forward recording events to every client too — otherwise
-// the process that actually holds the Claude channel never sees them.
-function broadcastRecordingEventToClients(msg) {
-  const line = JSON.stringify(msg) + "\n";
-  for (const socket of clientSockets.values()) {
-    try {
-      if (socket && !socket.destroyed) socket.write(line);
-    } catch {}
-  }
-}
 
-// Waiters resolved when a fresh native host socket is assigned. Used by the
-// disconnect path to recover as soon as the extension reconnects instead of
-// blocking on a fixed delay.
-const nativeHostWaiters = new Set();
+const linkIsUp = () => socket && !socket.destroyed && socket.readyState === "open";
 
-function notifyNativeHostConnected() {
-  if (!nativeHostWaiters.size) return;
-  const waiters = Array.from(nativeHostWaiters);
-  nativeHostWaiters.clear();
-  for (const w of waiters) w(true);
-}
-
-function waitForNativeHost(maxMs) {
-  if (nativeHostSocket && !nativeHostSocket.destroyed) return Promise.resolve(true);
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      nativeHostWaiters.delete(resolveOnce);
-      resolve(false);
-    }, maxMs);
-    function resolveOnce(ok) {
-      clearTimeout(timer);
-      resolve(ok);
-    }
-    nativeHostWaiters.add(resolveOnce);
-  });
-}
-
-// Wait for a usable browser link in WHICHEVER role this process ends up in.
-// A client whose primary just died may reconnect to a new primary, or promote
-// itself (becoming the primary and attaching the native host) — both settle
-// within ~2s. Polling covers both without threading waiters through the
-// client reconnect machinery.
+// Wait for the bridge to come back, for callers that arrived while the host was
+// being respawned.
 function waitForLink(maxMs) {
-  const up = () =>
-    mode === "primary"
-      ? nativeHostSocket && !nativeHostSocket.destroyed
-      : primarySocket && !primarySocket.destroyed;
-  if (up()) return Promise.resolve(true);
+  if (linkIsUp()) return Promise.resolve(true);
   return new Promise((resolve) => {
-    const started = Date.now();
+    const startedAt = Date.now();
     const poll = setInterval(() => {
-      if (up()) {
+      if (linkIsUp()) {
         clearInterval(poll);
         resolve(true);
-      } else if (Date.now() - started >= maxMs) {
+      } else if (Date.now() - startedAt >= maxMs) {
         clearInterval(poll);
         resolve(false);
       }
-    }, 150);
+    }, 100);
   });
 }
 
-// Primary mode: client (other MCP server process) connections multiplexed
-// to the single native host.
-const clientSockets = new Map();
-let clientIdCounter = 0;
-const clientRequestMap = new Map();
-
-// Client mode: TCP connection to whichever process owns the port.
-let primarySocket = null;
-let clientBuffer = Buffer.alloc(0);
-
-const pidfilePath = path.join(
-  os.tmpdir(),
-  `open-claude-in-chrome-mcp-${TCP_PORT}.pid`
-);
-
-function writePidfile() {
-  try {
-    fs.writeFileSync(pidfilePath, String(process.pid));
-  } catch {}
-}
-
-function cleanupPidfile() {
-  try {
-    const content = fs.readFileSync(pidfilePath, "utf-8").trim();
-    if (content === String(process.pid)) fs.unlinkSync(pidfilePath);
-  } catch {}
-}
-
-const tcpServer = net.createServer((socket) => {
-  let classified = false;
-  let earlyBuffer = Buffer.alloc(0);
-
-  // An accepted socket is UNCLASSIFIED for up to 500ms, and until it is
-  // classified nothing downstream has attached an 'error' listener. In Node an
-  // unhandled 'error' event is a thrown exception, so a peer that vanishes in
-  // that window — a client MCP process killed mid-request, which is routine:
-  // every short-lived probe ends that way — takes the whole primary down with
-  // an ECONNRESET, silently, exiting 1 with no OS crash record. Every client
-  // proxying through it then sees its pipe close at once.
-  //
-  // The listener is attached at accept time and stays attached for the
-  // socket's whole life. setupClientConnection / setupNativeHostConnection add
-  // their own handlers later; extra 'error' listeners are harmless, an absent
-  // one is fatal.
-  socket.on("error", (err) => {
-    process.stderr.write(
-      `Connection error before classification (${err.code || err.message}) — ` +
-        `dropping that socket, staying up\n`
-    );
-    socket.destroy();
-  });
-
-  const classifyTimeout = setTimeout(() => {
-    if (!classified) {
-      classified = true;
-      setupNativeHostConnection(socket, earlyBuffer);
-    }
-  }, 500);
-
-  socket.on("close", () => clearTimeout(classifyTimeout));
-
-  socket.on("data", function onEarlyData(chunk) {
-    if (classified) return;
-    earlyBuffer = Buffer.concat([earlyBuffer, chunk]);
-    const newlineIdx = earlyBuffer.indexOf(10);
-    if (newlineIdx === -1) return;
-
-    const firstLine = earlyBuffer
-      .subarray(0, newlineIdx)
-      .toString("utf-8")
-      .trim();
-    try {
-      const firstMsg = JSON.parse(firstLine);
-      if (firstMsg.type === "client_hello") {
-        classified = true;
-        clearTimeout(classifyTimeout);
-        socket.removeListener("data", onEarlyData);
-        setupClientConnection(socket, earlyBuffer.subarray(newlineIdx + 1));
-        return;
-      }
-    } catch {}
-
-    classified = true;
-    clearTimeout(classifyTimeout);
-    socket.removeListener("data", onEarlyData);
-    setupNativeHostConnection(socket, earlyBuffer);
-  });
-});
-
-function setupNativeHostConnection(socket, initialBuffer) {
-  if (nativeHostSocket && !nativeHostSocket.destroyed) {
-    socket.end(
-      JSON.stringify({
-        type: "error",
-        error: "Another browser profile is already connected."
-      }) + "\n"
-    );
-    socket.destroy();
+function handleMessage(msg) {
+  if (msg.type === "client_ack") return;
+  if (msg.type === "recording_complete") {
+    emitRecordingEvent(msg);
     return;
   }
-
-  nativeHostSocket = socket;
-  notifyNativeHostConnected();
-  let buffer = initialBuffer;
-
-  let idx;
-  while ((idx = buffer.indexOf(10)) !== -1) {
-    processLine(buffer.subarray(0, idx).toString("utf-8").trim());
-    buffer = buffer.subarray(idx + 1);
-  }
-
-  socket.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    let newlineIdx;
-    while ((newlineIdx = buffer.indexOf(10)) !== -1) {
-      processLine(buffer.subarray(0, newlineIdx).toString("utf-8").trim());
-      buffer = buffer.subarray(newlineIdx + 1);
-    }
-  });
-
-  socket.on("error", () => {
-    nativeHostSocket = null;
-  });
-
-  socket.on("close", () => {
-    if (nativeHostSocket === socket) nativeHostSocket = null;
-    if (pendingRequests.size === 0) return;
-    // NEVER resend an in-flight request to a fresh native host. A request that
-    // reached the browser may have ALREADY executed, with only its response
-    // lost when the socket died — replaying it silently double-executes the
-    // action (a click clicks twice, a `type` doubles its text) while the agent
-    // sees a single successful call. There is no way to tell "never ran" from
-    // "ran, response lost" at this layer, so we fail loudly and let the agent
-    // decide with page context instead of guessing. Reads are cheap for the
-    // agent to reissue; a duplicated click is not recoverable.
-    for (const [, { reject, timer }] of pendingRequests) {
-      clearTimeout(timer);
-      reject(new Error(HOST_DROPPED_ERROR));
-    }
-    pendingRequests.clear();
-  });
-}
-
-function setupClientConnection(socket, initialBuffer) {
-  const clientId = String(++clientIdCounter);
-  clientSockets.set(clientId, socket);
-  process.stderr.write(`Client MCP server connected (client ${clientId})\n`);
-
-  socket.write(JSON.stringify({ type: "client_ack", clientId }) + "\n");
-
-  let buffer = initialBuffer;
-
-  function processClientData() {
-    let idx;
-    while ((idx = buffer.indexOf(10)) !== -1) {
-      const line = buffer.subarray(0, idx).toString("utf-8").trim();
-      buffer = buffer.subarray(idx + 1);
-      if (!line) continue;
-      try {
-        const msg = JSON.parse(line);
-        if (msg.type === "tool_request" && msg.id) {
-          const prefixedId = `c${clientId}_${msg.id}`;
-          clientRequestMap.set(prefixedId, { clientId, originalId: msg.id });
-
-          if (!nativeHostSocket || nativeHostSocket.destroyed) {
-            socket.write(
-              JSON.stringify({
-                id: msg.id,
-                type: "tool_error",
-                error: "Browser extension is not connected."
-              }) + "\n"
-            );
-            clientRequestMap.delete(prefixedId);
-          } else {
-            nativeHostSocket.write(
-              JSON.stringify({ ...msg, id: prefixedId }) + "\n"
-            );
-          }
-        }
-      } catch {}
-    }
-  }
-
-  processClientData();
-
-  socket.on("data", (chunk) => {
-    buffer = Buffer.concat([buffer, chunk]);
-    processClientData();
-  });
-
-  socket.on("error", () => {});
-  socket.on("close", () => {
-    clientSockets.delete(clientId);
-    for (const [prefixedId, info] of clientRequestMap) {
-      if (info.clientId === clientId) clientRequestMap.delete(prefixedId);
-    }
-    process.stderr.write(`Client MCP server disconnected (client ${clientId})\n`);
-  });
-}
-
-function processLine(line) {
-  if (!line) return;
-  try {
-    const msg = JSON.parse(line);
-    if (msg.type === "heartbeat") return;
-    if (msg.type === "recording_complete") {
-      emitRecordingEvent(msg); // this process, if it holds the channel
-      broadcastRecordingEventToClients(msg); // any client process that holds it
-      return;
-    }
-    handleResponse(msg);
-  } catch {}
-}
-
-function handleResponse(msg) {
-  if (msg.id && clientRequestMap.has(msg.id)) {
-    const { clientId, originalId } = clientRequestMap.get(msg.id);
-    clientRequestMap.delete(msg.id);
-    const clientSocket = clientSockets.get(clientId);
-    if (clientSocket && !clientSocket.destroyed) {
-      const fwd = JSON.stringify({ ...msg, id: originalId }) + "\n";
-      clientSocket.write(fwd);
-    }
-    return;
-  }
-
   if (msg.id && pendingRequests.has(msg.id)) {
     const { resolve, reject, timer } = pendingRequests.get(msg.id);
     clearTimeout(timer);
@@ -368,225 +108,116 @@ function handleResponse(msg) {
   }
 }
 
+function connect() {
+  if (shuttingDown) return;
+  reconnectTimer = null;
+
+  const sock = net.createConnection(PIPE_PATH);
+  socket = sock;
+  readBuffer = Buffer.alloc(0);
+  let established = false;
+
+  sock.on("connect", () => {
+    established = true;
+    sock.write(JSON.stringify({ type: "client_hello" }) + "\n");
+    process.stderr.write(`Joined the browser bridge at ${PIPE_PATH}\n`);
+  });
+
+  sock.on("data", (chunk) => {
+    readBuffer = Buffer.concat([readBuffer, chunk]);
+    let idx;
+    while ((idx = readBuffer.indexOf(10)) !== -1) {
+      const line = readBuffer.subarray(0, idx).toString("utf-8").trim();
+      readBuffer = readBuffer.subarray(idx + 1);
+      if (!line) continue;
+      try {
+        handleMessage(JSON.parse(line));
+      } catch {
+        // skip malformed
+      }
+    }
+  });
+
+  // Nothing to report for a connect that simply found no host: that is the
+  // ordinary state when the browser is not running, and the close handler
+  // schedules the retry.
+  sock.on("error", (err) => {
+    if (established) process.stderr.write(`Bridge error: ${err.message}\n`);
+  });
+
+  sock.on("close", () => {
+    if (socket === sock) socket = null;
+    failPending();
+    if (!shuttingDown && !reconnectTimer) {
+      reconnectTimer = setTimeout(connect, RECONNECT_MS);
+    }
+  });
+}
+
+// Settle everything in flight when the link drops.
+//
+// A request that was actually written may have reached the browser and run,
+// with only its response lost — replaying it would silently double-execute the
+// action (a click clicks twice) while the agent sees one successful call. There
+// is no way to tell "never ran" from "ran, response lost" at this layer, so
+// those fail loudly and let the agent decide with page context. A request still
+// waiting for the link never went anywhere, so it can say so plainly.
+function failPending() {
+  if (pendingRequests.size === 0) return;
+  for (const [, entry] of pendingRequests) {
+    clearTimeout(entry.timer);
+    entry.reject(new Error(entry.sent ? HOST_DROPPED_ERROR : NO_BRIDGE_ERROR));
+  }
+  pendingRequests.clear();
+}
+
 function sendToExtension(tool, args) {
   return new Promise((resolve, reject) => {
     const id = String(++requestIdCounter);
     const timer = setTimeout(() => {
       pendingRequests.delete(id);
       reject(new Error("Tool request timed out after 60s"));
-    }, 60_000);
-    pendingRequests.set(id, { resolve, reject, timer, tool, args });
+    }, REQUEST_TIMEOUT_MS);
+    const entry = { resolve, reject, timer, sent: false };
+    pendingRequests.set(id, entry);
 
-    if (mode === "primary") {
-      if (!nativeHostSocket || nativeHostSocket.destroyed) {
-        // Cold-start grace: a freshly-bound primary has a 1.5-2s window
-        // before the native host's reconnect loop attaches (hosts retry at
-        // 1.5s, plus the 500ms classification timeout). Ephemeral primaries
-        // (spawned per claude session) used to fail their FIRST tool call
-        // inside that window; wait for the attach instead of rejecting.
-        waitForNativeHost(5000).then((ok) => {
-          // This is the request's FIRST delivery, not a replay: it was never
-          // written to any socket (there wasn't one). Safe to send — but only
-          // if it is still pending. If the entry is gone the promise was
-          // already settled (e.g. the host closed and we rejected it), and
-          // dispatching now would run an action nobody is waiting on.
-          const entry = pendingRequests.get(id);
-          if (!entry) return;
-          if (ok && nativeHostSocket && !nativeHostSocket.destroyed) {
-            nativeHostSocket.write(
-              JSON.stringify({ id, type: "tool_request", tool, args }) + "\n"
-            );
-          } else {
-            clearTimeout(timer);
-            pendingRequests.delete(id);
-            reject(
-              new Error(
-                "Browser extension is not connected. Make sure a supported Chromium browser is running with the Open Claude in Chrome extension installed and enabled."
-              )
-            );
-          }
-        });
-        return;
-      }
-      nativeHostSocket.write(
-        JSON.stringify({ id, type: "tool_request", tool, args }) + "\n"
-      );
-    } else {
-      if (!primarySocket || primarySocket.destroyed) {
-        // Client-path cold-start grace, mirroring the primary path above: a
-        // client calling inside the window after a primary died (reconnect,
-        // self-promotion, or another process winning the port all take up to
-        // ~2s) used to fail INSTANTLY while the primary's own calls in the
-        // same window succeeded. Poll for the link to come back — in either
-        // role, since this process may have promoted itself meanwhile — and
-        // only reject if it is still down after the grace.
-        waitForLink(5000).then((ok) => {
-          const entry = pendingRequests.get(id);
-          if (!entry || entry.resent) return;
-          if (ok) {
-            entry.resent = true;
-            const line = JSON.stringify({ id, type: "tool_request", tool, args }) + "\n";
-            if (mode === "primary" && nativeHostSocket && !nativeHostSocket.destroyed) {
-              nativeHostSocket.write(line);
-            } else if (primarySocket && !primarySocket.destroyed) {
-              primarySocket.write(line);
-            } else {
-              ok = false;
-            }
-          }
-          if (!ok) {
-            clearTimeout(entry.timer);
-            pendingRequests.delete(id);
-            reject(new Error("Lost connection to primary MCP server."));
-          }
-        });
-        return;
-      }
-      primarySocket.write(
-        JSON.stringify({ id, type: "tool_request", tool, args }) + "\n"
-      );
+    const line = JSON.stringify({ id, type: "tool_request", tool, args }) + "\n";
+
+    if (linkIsUp()) {
+      entry.sent = true;
+      socket.write(line);
+      return;
     }
+
+    waitForLink(LINK_GRACE_MS).then((ok) => {
+      // Only dispatch if still pending: the entry is gone once the promise has
+      // settled some other way, and sending then would run an action nobody is
+      // waiting on.
+      if (!pendingRequests.has(id)) return;
+      if (ok && linkIsUp()) {
+        entry.sent = true;
+        socket.write(line);
+        return;
+      }
+      clearTimeout(timer);
+      pendingRequests.delete(id);
+      reject(new Error(NO_BRIDGE_ERROR));
+    });
   });
-}
-
-function startClientMode() {
-  mode = "client";
-  process.stderr.write(
-    `Port ${TCP_PORT} in use. Connecting as client to primary MCP server...\n`
-  );
-
-  function connect() {
-    primarySocket = net.createConnection(TCP_PORT, "127.0.0.1", () => {
-      process.stderr.write(
-        `Connected to primary MCP server on :${TCP_PORT}\n`
-      );
-      primarySocket.write(JSON.stringify({ type: "client_hello" }) + "\n");
-    });
-
-    primarySocket.on("data", (chunk) => {
-      clientBuffer = Buffer.concat([clientBuffer, chunk]);
-      let idx;
-      while ((idx = clientBuffer.indexOf(10)) !== -1) {
-        const line = clientBuffer.subarray(0, idx).toString("utf-8").trim();
-        clientBuffer = clientBuffer.subarray(idx + 1);
-        if (!line) continue;
-        try {
-          const msg = JSON.parse(line);
-          if (msg.type === "client_ack") continue;
-          if (msg.type === "error") {
-            process.stderr.write(`Primary server error: ${msg.error}\n`);
-            continue;
-          }
-          if (msg.type === "recording_complete") {
-            // Forwarded by the primary — fire local subscribers (this client
-            // may be the process holding the Claude channel).
-            emitRecordingEvent(msg);
-            continue;
-          }
-          if (msg.id && pendingRequests.has(msg.id)) {
-            const { resolve, reject, timer } = pendingRequests.get(msg.id);
-            clearTimeout(timer);
-            pendingRequests.delete(msg.id);
-            if (msg.type === "tool_error") {
-              reject(new Error(msg.error || "Tool execution failed"));
-            } else {
-              resolve(msg.result);
-            }
-          }
-        } catch {}
-      }
-    });
-
-    primarySocket.on("error", (err) => {
-      process.stderr.write(`Client connection error: ${err.message}\n`);
-    });
-
-    primarySocket.on("close", () => {
-      primarySocket = null;
-      for (const [, { reject, timer }] of pendingRequests) {
-        clearTimeout(timer);
-        reject(new Error("Primary MCP server disconnected"));
-      }
-      pendingRequests.clear();
-      // The primary is gone. Reconnecting forever to a port nobody is
-      // listening on strands this process permanently (every tool call
-      // then fails with "Lost connection to primary MCP server"), so try
-      // to take the port ourselves; only fall back to reconnecting if
-      // another process wins the election first.
-      setTimeout(() => {
-        if (mode !== "client" || primarySocket) return;
-        const onPromoteError = (err) => {
-          if (err.code === "EADDRINUSE") {
-            connect(); // another process became primary; join it
-          } else {
-            process.stderr.write(`Self-promotion failed: ${err.message}\n`);
-            setTimeout(connect, 2000);
-          }
-        };
-        tcpServer.once("error", onPromoteError);
-        tcpServer.listen(TCP_PORT, "127.0.0.1", () => {
-          tcpServer.removeListener("error", onPromoteError);
-          mode = "primary";
-          writePidfile();
-          process.stderr.write(
-            `Primary disconnected — promoted self to primary on :${TCP_PORT}\n`
-          );
-        });
-      }, 2000);
-    });
-  }
-
-  connect();
 }
 
 // --- Public API ---
 
 /**
- * Connect to (or become) the shared tool runtime. Safe to call from
- * multiple processes — first to bind the port is primary, others
- * become clients of the primary.
+ * Join the browser bridge. Returns as soon as the first connection attempt has
+ * been made — deliberately not once it succeeds, because the MCP server has to
+ * come up and advertise its tools whether or not a browser is running. Calls
+ * made before the bridge is up get the grace period in sendToExtension.
  */
 export async function init() {
   if (started) return;
   started = true;
-
-  const pidfiles = [
-    pidfilePath,
-    path.join(os.tmpdir(), `unblocked-chrome-mcp-${TCP_PORT}.pid`)
-  ];
-  for (const pf of pidfiles) {
-    try {
-      const oldPid = parseInt(fs.readFileSync(pf, "utf-8").trim(), 10);
-      if (oldPid && oldPid !== process.pid) {
-        try {
-          process.kill(oldPid, 0);
-        } catch {
-          try {
-            fs.unlinkSync(pf);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  return new Promise((resolve) => {
-    tcpServer.once("error", (err) => {
-      if (err.code === "EADDRINUSE") {
-        startClientMode();
-        resolve();
-      } else {
-        process.stderr.write(`TCP server error: ${err.message}\n`);
-        process.exit(1);
-      }
-    });
-
-    tcpServer.listen(TCP_PORT, "127.0.0.1", () => {
-      mode = "primary";
-      writePidfile();
-      process.stderr.write(`Primary MCP server listening on :${TCP_PORT}\n`);
-      resolve();
-    });
-  });
+  connect();
 }
 
 /**
@@ -627,6 +258,7 @@ function textResult(text) {
  * safe to invoke directly with values straight off the MCP wire.
  */
 export async function callTool(toolName, args) {
+  noteActivity();
   try {
     const coerced = coerceArgs(args ?? {});
     const result = await sendToExtension(toolName, coerced);
@@ -639,24 +271,20 @@ export async function callTool(toolName, args) {
 }
 
 /**
- * Tear down sockets, pidfile, and pending requests. Idempotent.
+ * Tear down the connection and pending requests. Idempotent.
  * The caller (process owner) handles process.exit().
  */
 export function shutdown() {
-  if (mode === "primary") cleanupPidfile();
-  if (nativeHostSocket && !nativeHostSocket.destroyed) nativeHostSocket.destroy();
-  if (primarySocket && !primarySocket.destroyed) primarySocket.destroy();
-  for (const [, sock] of clientSockets) {
-    if (!sock.destroyed) sock.destroy();
+  shuttingDown = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
   }
   for (const [, { reject, timer }] of pendingRequests) {
     clearTimeout(timer);
     reject(new Error("Server shutting down"));
   }
   pendingRequests.clear();
-  if (mode === "primary") {
-    try {
-      tcpServer.close();
-    } catch {}
-  }
+  if (socket && !socket.destroyed) socket.destroy();
+  socket = null;
 }

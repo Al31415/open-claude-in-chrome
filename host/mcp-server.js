@@ -3,8 +3,8 @@
 // MCP Server for Open Claude in Chrome extension.
 // Started by Claude Code via stdio MCP transport.
 //
-// All of the actual runtime logic (TCP port, native messaging, primary/client
-// multiplexing) lives in host/tool-runtime.js so the codemode + hybrid
+// All of the actual runtime logic (joining the browser bridge, framing,
+// request routing) lives in host/tool-runtime.js so the codemode + hybrid
 // servers can reuse it without spawning a child process. This file is the
 // stdio MCP front-end: it registers the 18 tools and pipes them to the
 // shared runtime.
@@ -14,6 +14,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 
 import { init, callTool, shutdown, coerceArgs } from "./tool-runtime.js";
 import { TOOLS } from "./tool-definitions.js";
+import { watchParent } from "./parent-watch.js";
 
 function exitClean(code = 0) {
   try {
@@ -27,6 +28,11 @@ process.on("SIGINT", () => exitClean());
 process.on("SIGHUP", () => exitClean());
 process.stdin.on("end", () => exitClean());
 process.stdin.resume();
+
+// stdin EOF is the fast path, but it only arrives if nobody else holds a copy
+// of the write end. Watching the parent directly is the backstop that does not
+// depend on the pipe — without it these processes accumulate indefinitely.
+watchParent(() => exitClean());
 
 await init();
 
