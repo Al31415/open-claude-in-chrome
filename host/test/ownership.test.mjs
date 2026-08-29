@@ -378,6 +378,45 @@ await test("a session survives the host being respawned under it", async (pipe) 
   ext2.kill();
 });
 
+await test("a session started before the browser reconnects when it appears", async (pipe) => {
+  // The real sequence that broke a session today: the MCP server came up while
+  // no browser was running, so it sat in its reconnect loop for five minutes —
+  // hundreds of failed connects — before a host finally appeared. Every other
+  // test here hands the session a host that already exists, so this path, the
+  // one an ordinary user hits every time they open their editor before their
+  // browser, had never been exercised at all.
+  const session = spawn(process.execPath, [SESSION], {
+    env: { ...process.env, OCIC_PIPE: pipe },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  const err = [];
+  session.stderr.on("data", (c) => err.push(c.toString()));
+
+  // Long enough for many retry cycles against nothing.
+  await sleep(6000);
+  assert(session.exitCode === null, `session died while waiting: ${err.join("").slice(0, 300)}`);
+  assert(
+    !/Joined the browser bridge/.test(err.join("")),
+    "session claims it joined a bridge that does not exist"
+  );
+
+  const ext = fakeExtension();
+  ext.autoRespond();
+  await waitFor(
+    async () => /Joined the browser bridge/.test(err.join("")),
+    8000,
+    "session reconnects once the host appears"
+  );
+
+  // And it must actually work, not just report a connection.
+  const c = fakeClient(pipe, "alongside");
+  await c.ready;
+  assert((await c.call("navigate")).result?.echo === "navigate", "bridge not serving");
+  c.close();
+  session.kill();
+  ext.kill();
+});
+
 await test("a waiting host takes over promptly when the owner releases", async (pipe) => {
   // This is the switch_browser hand-off. background.js drops the outgoing
   // browser's host and suspends reconnect for SWITCH_RELEASE_MS (15s); the

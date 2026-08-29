@@ -24,10 +24,14 @@
 
 import { execFile } from "node:child_process";
 
-const LIVENESS_MS = 30_000;
+// Tunable so this is testable in seconds. A watchdog that only acts after 30s,
+// and whose second check only fires at 5 minutes, cannot be covered by any test
+// that finishes quickly — which is exactly how a bug here reaches a user: every
+// check passes, because every check is too fast to reach the code that kills.
+const LIVENESS_MS = Number(process.env.OCIC_PARENT_CHECK_MS) || 30_000;
 // Identity is the expensive check and the slow-moving risk: a recycled PID can
 // only keep us alive until the next one.
-const IDENTITY_EVERY = 10; // ticks, so ~5 minutes
+const IDENTITY_EVERY = Number(process.env.OCIC_IDENTITY_EVERY) || 10; // ~5 min
 
 // Creation time of `pid`, in ms since epoch, or null if it cannot be read.
 //
