@@ -419,6 +419,17 @@ await test("a waiting host takes over promptly when the owner releases", async (
 
 // ---------------------------------------------------------------------------
 
+// On POSIX a unix socket outlives its process, so a run would otherwise leave
+// one file per test behind in the temp dir.
+if (process.platform !== "win32") {
+  const { unlinkSync } = await import("node:fs");
+  for (let i = 1; i <= seq; i++) {
+    try {
+      unlinkSync(pipeFor(i));
+    } catch {}
+  }
+}
+
 const failed = results.filter((r) => !r.ok);
 console.log(
   `\n${results.length - failed.length}/${results.length} passed` +

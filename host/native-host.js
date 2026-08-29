@@ -13,7 +13,8 @@ import os from "node:os";
 import {
   getPipePath,
   ensureSocketDir,
-  clearStaleSocket
+  clearStaleSocket,
+  secureSocket
 } from "./endpoint.js";
 
 // --- Native messaging protocol (Chrome <-> this process) ---

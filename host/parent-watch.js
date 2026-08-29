@@ -30,6 +30,10 @@ const LIVENESS_MS = 30_000;
 const IDENTITY_EVERY = 10; // ticks, so ~5 minutes
 
 // Creation time of `pid`, in ms since epoch, or null if it cannot be read.
+//
+// Windows only, and only needed there. POSIX reparents an orphan to init, so
+// "my parent died" is answered by ppid alone and can never be confused with a
+// recycled pid — there is nothing for an identity check to add.
 function birthTime(pid) {
   return new Promise((resolve) => {
     if (process.platform !== "win32") return resolve(null);

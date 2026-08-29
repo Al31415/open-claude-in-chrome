@@ -80,6 +80,16 @@ export function ensureSocketDir() {
   } catch {}
 }
 
+// The 0700 directory is the real guard, but set the socket's own mode too, so
+// that a permissive umask — or a directory someone widens later — doesn't
+// quietly leave the bridge open to other accounts on the machine.
+export function secureSocket(pipePath) {
+  if (process.platform === "win32") return; // pipe ACLs already scope this
+  try {
+    fs.chmodSync(pipePath, 0o600);
+  } catch {}
+}
+
 // A unix socket file outlives the process that made it, so a host that was
 // killed leaves a path that listen() will refuse with EADDRINUSE even though
 // nobody is home. Only unlink when a connect attempt proves it is dead —
