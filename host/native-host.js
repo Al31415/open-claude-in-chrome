@@ -13,6 +13,10 @@ import os from "node:os";
 const DEFAULT_PORT = 18765;
 
 function getPort() {
+  // Env override first, so a test harness can stand up a whole hub + client
+  // fleet on a scratch port without disturbing the live one on :18765.
+  const fromEnv = parseInt(process.env.OCIC_PORT || "", 10);
+  if (fromEnv > 0) return fromEnv;
   const configPath = path.join(
     os.homedir(),
     ".config",
@@ -54,38 +58,251 @@ function writeNativeMessage(obj) {
   process.stdout.write(Buffer.concat([header, buf]));
 }
 
-// --- TCP connection to MCP server ---
+// --- Who owns the port ---
+//
+// Exactly one process has to own :18765, because native messaging gives the
+// extension exactly one host, and every Claude Code session on the machine
+// has to reach that one browser through it. The only real question is WHICH
+// process owns it.
+//
+// It used to be whichever MCP server bound first — an ordinary Claude Code
+// session, picked for no reason except that it booted first, holding the
+// browser link on behalf of every other session on the box. That made the
+// link's lifetime an accident: it ended when an unrelated session exited, and
+// an orphaned server left behind by a session that died days ago was just as
+// eligible to win the race as a live one (#36, #41).
+//
+// This process is the principled owner. Chrome starts it when the extension
+// connects and kills it when the extension goes away, so its lifetime already
+// IS the browser link's lifetime — and the extension already supervises it,
+// reconnecting 250ms after onDisconnect (background.js). Owning the port here
+// deletes the election entirely, and demotes an orphaned MCP server to
+// harmless: it holds nothing anyone else needs.
+//
+// The wire protocol is unchanged in both directions, so this rolls out one
+// side at a time: a new host serves old client-mode MCP servers, and a new MCP
+// server still works against an old primary. When something already holds the
+// port we attach to it exactly as before AND ask it to hand over — a new MCP
+// server steps aside, an old one ignores the request and we simply stay in the
+// legacy role, which is today's behaviour.
 
+const TCP_PORT = getPort();
+
+let mode = null; // "hub" once we own the port; "legacy" while someone else does
+
+// Legacy role: we are a TCP client of whichever MCP server owns the port.
 let tcpSocket = null;
 let tcpBuffer = Buffer.alloc(0);
 let reconnectTimer = null;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 60; // 30 seconds at 500ms intervals
-const TCP_PORT = getPort();
+let upgradeTimer = null;
 
-// When the primary rejects us because ANOTHER browser's host already holds
+// Hub role: MCP servers connect to US, and are multiplexed onto the single
+// native-messaging channel to the extension.
+const clients = new Map(); // clientId -> socket
+const clientRequestMap = new Map(); // prefixed id -> { clientId, originalId }
+let clientIdCounter = 0;
+
+// When the incumbent rejects us because ANOTHER browser's host already holds
 // the native slot, retry slowly (15s) instead of hammering every 1.5s: with
-// two browsers running OCIC, the loser otherwise reconnect-spams the primary
-// and makes browser selection flap across primary restarts.
-let rejectedByPrimary = false;
+// two browsers running OCIC, the loser otherwise reconnect-spams the owner
+// and makes browser selection flap across restarts.
+let rejectedByOwner = false;
 const RETRY_MS = 1500;
 const REJECTED_RETRY_MS = 15000;
+// A peer that has connected but not yet said what it is. Only an MCP client
+// has anything to send on connect (`client_hello`), so silence past this
+// window means a rival browser's host, which we reject.
+const CLASSIFY_MS = 500;
 
-function connectTcp() {
-  if (tcpSocket) return;
+// --- Hub role ---
 
-  tcpSocket = new net.Socket();
+const hubServer = net.createServer((socket) => {
+  // An accepted socket is unclassified until its first line arrives, and until
+  // then nothing downstream has attached an 'error' listener. In Node an
+  // unhandled 'error' is a thrown exception, so a peer that vanishes in that
+  // window — a client MCP process killed mid-handshake, which is routine —
+  // would take the hub down, and with it every session's browser link. This is
+  // the same failure that cost the primary its life in c0a09a2.
+  socket.on("error", () => socket.destroy());
 
-  tcpSocket.connect(TCP_PORT, "127.0.0.1", () => {
-    reconnectAttempts = 0;
+  let buffer = Buffer.alloc(0);
+  let classified = false;
+
+  const rejectAsRival = () => {
+    if (classified) return;
+    classified = true;
+    // Reject with the exact string the losing host's reconnect loop matches on
+    // so it drops into the slow lane instead of hammering us every 1.5s.
+    try {
+      socket.end(
+        JSON.stringify({
+          type: "error",
+          error: "Another browser profile is already connected."
+        }) + "\n"
+      );
+    } catch {}
+  };
+
+  const classifyTimer = setTimeout(rejectAsRival, CLASSIFY_MS);
+  socket.on("close", () => clearTimeout(classifyTimer));
+
+  socket.on("data", function onEarlyData(chunk) {
+    if (classified) return;
+    buffer = Buffer.concat([buffer, chunk]);
+    const idx = buffer.indexOf(10);
+    if (idx === -1) return;
+
+    const firstLine = buffer.subarray(0, idx).toString("utf-8").trim();
+    const rest = buffer.subarray(idx + 1);
+    let msg = null;
+    try {
+      msg = JSON.parse(firstLine);
+    } catch {}
+
+    classified = true;
+    clearTimeout(classifyTimer);
+    socket.removeListener("data", onEarlyData);
+
+    if (msg && msg.type === "client_hello") {
+      attachClient(socket, rest);
+      return;
+    }
+    // Anything else is another browser's host asking for a slot we hold.
+    classified = false;
+    rejectAsRival();
+  });
+});
+
+function attachClient(socket, initialBuffer) {
+  const clientId = String(++clientIdCounter);
+  clients.set(clientId, socket);
+  process.stderr.write(`MCP client ${clientId} attached (${clients.size} total)\n`);
+  socket.write(JSON.stringify({ type: "client_ack", clientId }) + "\n");
+
+  let buffer = initialBuffer;
+
+  function pump() {
+    let idx;
+    while ((idx = buffer.indexOf(10)) !== -1) {
+      const line = buffer.subarray(0, idx).toString("utf-8").trim();
+      buffer = buffer.subarray(idx + 1);
+      if (!line) continue;
+      try {
+        const msg = JSON.parse(line);
+        if (msg.type === "tool_request" && msg.id) {
+          // Namespace the id so concurrent sessions can't collide, and so a
+          // response can be routed back to the one client that asked.
+          const prefixedId = `h${clientId}_${msg.id}`;
+          clientRequestMap.set(prefixedId, { clientId, originalId: msg.id });
+          writeNativeMessage({ ...msg, id: prefixedId });
+        }
+      } catch {
+        // skip malformed
+      }
+    }
+  }
+
+  pump();
+  socket.on("data", (chunk) => {
+    buffer = Buffer.concat([buffer, chunk]);
+    pump();
+  });
+  socket.on("close", () => {
+    clients.delete(clientId);
+    for (const [prefixedId, info] of clientRequestMap) {
+      if (info.clientId === clientId) clientRequestMap.delete(prefixedId);
+    }
+    process.stderr.write(`MCP client ${clientId} detached (${clients.size} left)\n`);
+  });
+}
+
+// Route one extension-originated message to whoever is waiting for it.
+function routeFromExtension(msg) {
+  // Liveness ping from the service worker. It exists to keep the SW and this
+  // pipe warm; nothing downstream needs it.
+  if (msg.type === "heartbeat") return;
+  if (msg.type === "recording_complete") {
+    // Unsolicited: any attached session may be the one holding the Claude
+    // channel, so every client gets a copy.
+    const line = JSON.stringify(msg) + "\n";
+    for (const socket of clients.values()) {
+      try {
+        if (!socket.destroyed) socket.write(line);
+      } catch {}
+    }
+    return;
+  }
+  if (msg.id && clientRequestMap.has(msg.id)) {
+    const { clientId, originalId } = clientRequestMap.get(msg.id);
+    clientRequestMap.delete(msg.id);
+    const socket = clients.get(clientId);
+    try {
+      if (socket && !socket.destroyed) {
+        socket.write(JSON.stringify({ ...msg, id: originalId }) + "\n");
+      }
+    } catch {}
+    return;
+  }
+  // Unroutable: the client that asked is gone, or we never issued this id.
+}
+
+// --- Claiming the port ---
+
+function claimPort() {
+  const onListenError = (err) => {
+    if (err.code === "EADDRINUSE") {
+      // Someone holds it. Attach as a legacy client — which keeps us working
+      // no matter who they are — and ask them to hand the port over.
+      connectTcpLegacy();
+      return;
+    }
+    process.stderr.write(`Hub listen failed: ${err.message}\n`);
+    setTimeout(claimPort, RETRY_MS);
+  };
+
+  hubServer.once("error", onListenError);
+  hubServer.listen(TCP_PORT, "127.0.0.1", () => {
+    hubServer.removeListener("error", onListenError);
+    mode = "hub";
     if (reconnectTimer) {
       clearInterval(reconnectTimer);
       reconnectTimer = null;
     }
+    if (tcpSocket) {
+      // We were attached to an incumbent that has now stepped aside.
+      const old = tcpSocket;
+      tcpSocket = null;
+      old.destroy();
+    }
+    process.stderr.write(`Native host owns the browser port :${TCP_PORT}\n`);
+  });
+}
+
+// --- Legacy role: client of an MCP server that owns the port ---
+
+function connectTcpLegacy() {
+  if (tcpSocket || mode === "hub") return;
+  mode = "legacy";
+
+  tcpSocket = new net.Socket();
+
+  tcpSocket.connect(TCP_PORT, "127.0.0.1", () => {
+    if (reconnectTimer) {
+      clearInterval(reconnectTimer);
+      reconnectTimer = null;
+    }
+    // Ask the incumbent to hand the port over. A current MCP server closes its
+    // listener and rejoins as a client, at which point our retry wins the bind.
+    // An older one has no handler for this and ignores it, leaving us in the
+    // legacy role — i.e. exactly the behaviour before this change.
+    try {
+      tcpSocket.write(JSON.stringify({ type: "yield_request" }) + "\n");
+    } catch {}
+    scheduleUpgrade();
   });
 
   tcpSocket.on("data", (chunk) => {
-    // newline-delimited JSON from MCP server
+    // newline-delimited JSON from the MCP server that owns the port
     tcpBuffer = Buffer.concat([tcpBuffer, chunk]);
     let newlineIdx;
     while ((newlineIdx = tcpBuffer.indexOf(10)) !== -1) {
@@ -95,9 +312,9 @@ function connectTcp() {
       try {
         const msg = JSON.parse(line);
         if (msg.type === "error" && /another browser profile/i.test(msg.error || "")) {
-          // The primary already has a browser attached; we are the loser of
-          // the slot. Back off hard instead of hammering every 1.5s.
-          rejectedByPrimary = true;
+          // The owner already has a browser attached; we are the loser of the
+          // slot. Back off hard instead of hammering every 1.5s.
+          rejectedByOwner = true;
         }
         // Forward to extension via native messaging
         writeNativeMessage(msg);
@@ -113,20 +330,58 @@ function connectTcp() {
 
   tcpSocket.on("close", () => {
     tcpSocket = null;
-    if (!reconnectTimer) {
-      // Keep retrying indefinitely — do NOT exit when the MCP server is gone.
+    // The incumbent may have just yielded, so try to take the port before
+    // settling back into the retry loop.
+    if (mode !== "hub") claimPort();
+    if (!reconnectTimer && mode !== "hub") {
+      // Keep retrying indefinitely — do NOT exit when no MCP server is up.
       // The native host also writes recording bundles to disk (save_recording),
       // which must work with no Claude session connected. Lifetime is tied to
       // the extension (stdin), which ends on browser/extension shutdown below.
-      // Rejected-by-primary (another browser holds the slot): slow lane, and
+      // Rejected-by-owner (another browser holds the slot): slow lane, and
       // re-probe occasionally in case the winner's browser goes away.
-      const interval = rejectedByPrimary ? REJECTED_RETRY_MS : RETRY_MS;
-      rejectedByPrimary = false;
+      const interval = rejectedByOwner ? REJECTED_RETRY_MS : RETRY_MS;
+      rejectedByOwner = false;
       reconnectTimer = setInterval(() => {
-        if (!tcpSocket) connectTcp();
+        if (mode === "hub") return;
+        if (!tcpSocket) claimPort();
       }, interval);
     }
   });
+}
+
+// While attached to an incumbent, keep trying to take the port. This is what
+// converges the machine on host-owned ownership without anyone coordinating:
+// the moment the incumbent yields, exits, or is killed, the next attempt wins.
+function scheduleUpgrade() {
+  if (upgradeTimer || mode === "hub") return;
+  upgradeTimer = setTimeout(() => {
+    upgradeTimer = null;
+    if (mode === "hub") return;
+    const onErr = (err) => {
+      if (err.code !== "EADDRINUSE") {
+        process.stderr.write(`Upgrade attempt failed: ${err.message}\n`);
+      }
+      scheduleUpgrade(); // still theirs; try again later
+    };
+    hubServer.once("error", onErr);
+    hubServer.listen(TCP_PORT, "127.0.0.1", () => {
+      hubServer.removeListener("error", onErr);
+      mode = "hub";
+      if (tcpSocket) {
+        const old = tcpSocket;
+        tcpSocket = null;
+        old.destroy();
+      }
+      if (reconnectTimer) {
+        clearInterval(reconnectTimer);
+        reconnectTimer = null;
+      }
+      process.stderr.write(
+        `Incumbent yielded — native host now owns the browser port :${TCP_PORT}\n`
+      );
+    });
+  }, rejectedByOwner ? REJECTED_RETRY_MS : RETRY_MS);
 }
 
 // --- Recording bundle write ---
@@ -307,18 +562,32 @@ process.stdin.on("data", (chunk) => {
       handleWriteTempFile(msg);
       continue;
     }
-    // Forward everything else to the MCP server via TCP.
-    if (tcpSocket && !tcpSocket.destroyed) {
+    // Everything else is for a waiting MCP server. As the hub we route it to
+    // the one client that asked; in the legacy role we hand it to whichever
+    // MCP server owns the port and let it do the routing.
+    if (mode === "hub") {
+      routeFromExtension(msg);
+    } else if (tcpSocket && !tcpSocket.destroyed) {
       tcpSocket.write(JSON.stringify(msg) + "\n");
     }
   }
 });
 
 process.stdin.on("end", () => {
-  // Extension disconnected
+  // Extension disconnected. Drop the port immediately rather than lingering:
+  // with no extension there is no browser link to own, and holding :18765
+  // would block the host Chrome spawns next from claiming it.
   if (tcpSocket) tcpSocket.destroy();
+  for (const socket of clients.values()) {
+    try {
+      socket.destroy();
+    } catch {}
+  }
+  try {
+    hubServer.close();
+  } catch {}
   process.exit(0);
 });
 
-// Start TCP connection
-connectTcp();
+// Take the port if we can; attach to whoever has it if we can't.
+claimPort();

@@ -16,6 +16,10 @@ import os from "node:os";
 const DEFAULT_PORT = 18765;
 
 function getPort() {
+  // Env override first, so a test harness can stand up a whole hub + client
+  // fleet on a scratch port without disturbing the live one on :18765.
+  const fromEnv = parseInt(process.env.OCIC_PORT || "", 10);
+  if (fromEnv > 0) return fromEnv;
   const configPath = path.join(
     os.homedir(),
     ".config",
@@ -330,11 +334,55 @@ function setupClientConnection(socket, initialBuffer) {
   });
 }
 
+// The native host asks for the port when it finds us holding it. Hand it over.
+//
+// The host is the better owner: Chrome spawns it with the extension and kills
+// it with the extension, so its lifetime is exactly the browser link's, and
+// the extension already supervises it. We only ever hold the port because we
+// happened to start while the browser was down — a reason that stops being
+// true the moment the host appears.
+//
+// Handing over means: stop accepting, drop the host socket so its retry can
+// win the bind, and drop our clients so they re-resolve to the new owner. Then
+// rejoin as an ordinary client ourselves.
+function yieldPortToNativeHost() {
+  if (mode !== "primary") return;
+  process.stderr.write(
+    `Native host asked for :${TCP_PORT} — yielding, it is the better owner\n`
+  );
+  cleanupPidfile();
+  try {
+    tcpServer.close();
+  } catch {}
+  // In flight work cannot survive the handover: the responses would come back
+  // through a socket that no longer exists. Fail them the same way a dropped
+  // host does — loudly, without claiming they did not happen, since a request
+  // already delivered to the browser may well have run.
+  for (const [, { reject, timer }] of pendingRequests) {
+    clearTimeout(timer);
+    reject(new Error(HOST_DROPPED_ERROR));
+  }
+  pendingRequests.clear();
+  for (const [, socket] of clientSockets) {
+    if (!socket.destroyed) socket.destroy();
+  }
+  clientSockets.clear();
+  clientRequestMap.clear();
+  if (nativeHostSocket && !nativeHostSocket.destroyed) nativeHostSocket.destroy();
+  nativeHostSocket = null;
+  mode = "client";
+  startClientMode();
+}
+
 function processLine(line) {
   if (!line) return;
   try {
     const msg = JSON.parse(line);
     if (msg.type === "heartbeat") return;
+    if (msg.type === "yield_request") {
+      yieldPortToNativeHost();
+      return;
+    }
     if (msg.type === "recording_complete") {
       emitRecordingEvent(msg); // this process, if it holds the channel
       broadcastRecordingEventToClients(msg); // any client process that holds it
