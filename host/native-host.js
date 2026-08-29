@@ -76,7 +76,6 @@ const TCP_PORT = getPort();
 const PIPE_PATH = getPipePath();
 
 let mode = null; // "hub" once we own the port; "legacy" while someone else does
-let pipeOwned = false; // serving clients on the pipe, independent of the port
 let lastExtensionTraffic = Date.now();
 let heartbeatsSeen = 0;
 
@@ -169,15 +168,25 @@ function onIncomingConnection(socket) {
 const pipeServer = net.createServer(onIncomingConnection);
 const hubServer = net.createServer(onIncomingConnection);
 
+// How long we keep probing quickly before settling into the slow lane. This has
+// to comfortably exceed background.js's SWITCH_RELEASE_MS (15s): switch_browser
+// works by the outgoing browser dropping its host and suspending reconnect for
+// that window, and the incoming browser only gets the bridge if it happens to
+// probe while the window is open. Backing off to 15s immediately would make a
+// hand-off land inside the window mostly by luck.
+const FAST_CLAIM_WINDOW_MS = 40_000;
+const claimingSince = Date.now();
+
 async function claimPipe() {
   ensureSocketDir();
   await clearStaleSocket(PIPE_PATH);
   const onErr = (err) => {
     if (err.code === "EADDRINUSE") {
-      // Another browser's host already holds the bridge for this user. Retry
-      // slowly in case that browser goes away; meanwhile the port path below
-      // still gives us today's single-browser behaviour.
-      setTimeout(claimPipe, REJECTED_RETRY_MS);
+      // Another browser's host holds the bridge for this user. Probe often at
+      // first so a switch_browser hand-off is picked up promptly, then drop to
+      // the slow lane so two idle browsers aren't polling each other forever.
+      const fast = Date.now() - claimingSince < FAST_CLAIM_WINDOW_MS;
+      setTimeout(claimPipe, fast ? RETRY_MS : REJECTED_RETRY_MS);
       return;
     }
     process.stderr.write(`Pipe listen failed: ${err.message}\n`);
@@ -186,7 +195,6 @@ async function claimPipe() {
   pipeServer.once("error", onErr);
   pipeServer.listen(PIPE_PATH, () => {
     pipeServer.removeListener("error", onErr);
-    pipeOwned = true;
     process.stderr.write(`Native host owns the bridge at ${PIPE_PATH}\n`);
   });
 }

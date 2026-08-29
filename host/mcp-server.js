@@ -3,8 +3,8 @@
 // MCP Server for Open Claude in Chrome extension.
 // Started by Claude Code via stdio MCP transport.
 //
-// All of the actual runtime logic (TCP port, native messaging, primary/client
-// multiplexing) lives in host/tool-runtime.js so the codemode + hybrid
+// All of the actual runtime logic (joining the browser bridge, framing,
+// request routing) lives in host/tool-runtime.js so the codemode + hybrid
 // servers can reuse it without spawning a child process. This file is the
 // stdio MCP front-end: it registers the 18 tools and pipes them to the
 // shared runtime.

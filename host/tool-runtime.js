@@ -1,17 +1,15 @@
 // Shared runtime for open-claude-in-chrome tools.
 //
-// Owns the TCP port and the native-host connection, transparently runs in
-// primary or client mode (so multiple processes can share one extension),
-// and exposes a single `callTool(name, args)` entry point.
+// Joins the browser bridge and exposes a single `callTool(name, args)` entry
+// point. Normally that means connecting to the native host, which owns the
+// bridge; a process that starts while the browser is down falls back to holding
+// the legacy port itself and hands it over once the host appears.
 //
 // This used to live inline in mcp-server.js; it's extracted so that other
 // in-process consumers (the codemode + hybrid servers) can call tools
 // without going through a child mcp-server.js + stdio MCP roundtrip.
 
 import net from "node:net";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
 import { getPort, getPipePath } from "./endpoint.js";
 import { noteActivity } from "./parent-watch.js";
@@ -126,24 +124,6 @@ const clientRequestMap = new Map();
 // Client mode: TCP connection to whichever process owns the port.
 let primarySocket = null;
 let clientBuffer = Buffer.alloc(0);
-
-const pidfilePath = path.join(
-  os.tmpdir(),
-  `open-claude-in-chrome-mcp-${TCP_PORT}.pid`
-);
-
-function writePidfile() {
-  try {
-    fs.writeFileSync(pidfilePath, String(process.pid));
-  } catch {}
-}
-
-function cleanupPidfile() {
-  try {
-    const content = fs.readFileSync(pidfilePath, "utf-8").trim();
-    if (content === String(process.pid)) fs.unlinkSync(pidfilePath);
-  } catch {}
-}
 
 const tcpServer = net.createServer((socket) => {
   let classified = false;
@@ -333,7 +313,6 @@ function yieldPortToNativeHost() {
   process.stderr.write(
     `Native host asked for :${TCP_PORT} — yielding, it is the better owner\n`
   );
-  cleanupPidfile();
   try {
     tcpServer.close();
   } catch {}
@@ -575,7 +554,6 @@ function startClientMode() {
         tcpServer.listen(TCP_PORT, "127.0.0.1", () => {
           tcpServer.removeListener("error", onPromoteError);
           mode = "primary";
-          writePidfile();
           process.stderr.write(
             `Primary disconnected — promoted self to primary on :${TCP_PORT}\n`
           );
@@ -614,25 +592,6 @@ export async function init() {
   if (started) return;
   started = true;
 
-  const pidfiles = [
-    pidfilePath,
-    path.join(os.tmpdir(), `unblocked-chrome-mcp-${TCP_PORT}.pid`)
-  ];
-  for (const pf of pidfiles) {
-    try {
-      const oldPid = parseInt(fs.readFileSync(pf, "utf-8").trim(), 10);
-      if (oldPid && oldPid !== process.pid) {
-        try {
-          process.kill(oldPid, 0);
-        } catch {
-          try {
-            fs.unlinkSync(pf);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
   // If a native host is already serving the bridge, just join it. Binding the
   // port here would make this process a primary that nobody needs and that the
   // host then has to prise the port back from — the exact churn this replaces.
@@ -654,7 +613,6 @@ export async function init() {
 
     tcpServer.listen(TCP_PORT, "127.0.0.1", () => {
       mode = "primary";
-      writePidfile();
       process.stderr.write(`Primary MCP server listening on :${TCP_PORT}\n`);
       resolve();
     });
@@ -712,11 +670,10 @@ export async function callTool(toolName, args) {
 }
 
 /**
- * Tear down sockets, pidfile, and pending requests. Idempotent.
+ * Tear down sockets and pending requests. Idempotent.
  * The caller (process owner) handles process.exit().
  */
 export function shutdown() {
-  if (mode === "primary") cleanupPidfile();
   if (nativeHostSocket && !nativeHostSocket.destroyed) nativeHostSocket.destroy();
   if (primarySocket && !primarySocket.destroyed) primarySocket.destroy();
   for (const [, sock] of clientSockets) {
