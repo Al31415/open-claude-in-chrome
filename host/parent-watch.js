@@ -23,6 +23,31 @@
 // rule, which costs one query and cannot be fooled by reuse.
 
 import { execFile } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// An MCP server's stderr is captured by its client, and a process.exit() can
+// truncate the last write before it is flushed — so "the reaper printed no
+// message" is not evidence the reaper stayed quiet. Leave a breadcrumb on disk
+// instead, the way the native host does, so the question is answerable.
+function recordExit(reason) {
+  try {
+    const file = path.join(
+      os.homedir(),
+      ".config",
+      "open-claude-in-chrome",
+      "server-exits.log"
+    );
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const line = `${new Date().toISOString()} pid=${process.pid} ppid=${process.ppid} ${reason}\n`;
+    let prev = "";
+    try {
+      prev = fs.readFileSync(file, "utf-8");
+    } catch {}
+    fs.writeFileSync(file, (prev + line).split("\n").slice(-200).join("\n"));
+  } catch {}
+}
 
 // Tunable so this is testable in seconds. A watchdog that only acts after 30s,
 // and whose second check only fires at 5 minutes, cannot be covered by any test
@@ -102,11 +127,18 @@ export function watchParent(onOrphaned) {
     if (fired) return;
     fired = true;
     clearInterval(timer);
+    recordExit(`REAPER FIRED: ${why}`);
     try {
       process.stderr.write(`Parent process is gone (${why}); exiting.\n`);
     } catch {}
     onOrphaned();
   };
+
+  // Whatever ends this process, say so — so a death the reaper had nothing to
+  // do with can be told apart from one it caused, instead of inferred.
+  process.on("exit", (code) => {
+    if (!fired) recordExit(`process exit (code=${code}), reaper did not fire`);
+  });
 
   const idleLimit = parseInt(process.env.OCIC_IDLE_EXIT_MS || "", 10);
 
